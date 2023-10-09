@@ -11,8 +11,9 @@
 // #![allow(unused_features)]
 
 
+use std::string::ToString;
 use clap::{Parser, Subcommand, Args};
-use log::{error, info, trace, warn,debug};
+use log::{error, info, trace, warn, debug};
 use log::LevelFilter;
 use log4rs;
 use log4rs::append::console::ConsoleAppender;
@@ -45,16 +46,21 @@ struct Cli {
 	device_id: Option<String>,
 }
 
+const APP_NAME: &str = "dterm";
 
-fn init_log() {
+fn init_log(dir: &str) {
+	let full_dir = format!("{}/{}/log/{}.log", dir, APP_NAME, APP_NAME);
+
 	let trigger = policy::compound::trigger::size::SizeTrigger::new(128 * 1024 * 1024);
+
 	let roller = policy::compound::roll::fixed_window::FixedWindowRoller::builder()
-		.build("log/cdterm.log.{}", 100).unwrap();
+		.build((full_dir.clone() + ".{}").as_str(), 100).unwrap();
+
 	let policy = policy::compound::CompoundPolicy::new(Box::new(trigger), Box::new(roller));
+
 	let file = RollingFileAppender::builder()
-		// .encoder(Box::new(PatternEncoder::new("[{d(%Y-%m-%d %H:%M:%S)} {l} {t} {f}:{L}] - {m} {n}")))
 		.encoder(Box::new(PatternEncoder::new("{h([{d(%Y-%m-%d %H:%M:%S)} {l} {t} {f}:{L}])} - {m} {n}")))
-		.build("log/cdterm.log", Box::new(policy)).unwrap();
+		.build(full_dir.clone(), Box::new(policy)).unwrap();
 
 	let stdout = ConsoleAppender::builder()
 		.encoder(Box::new(PatternEncoder::new("{h([{d(%Y-%m-%d %H:%M:%S)} {l} {f}:{L}])} - {m} {n}")))
@@ -64,8 +70,8 @@ fn init_log() {
 	let config = Config::builder()
 		.appender(Appender::builder().build("stdout", Box::new(stdout)))
 		.appender(Appender::builder().build("file", Box::new(file)))
-		.logger(Logger::builder().build("app::backend::db", LevelFilter::Trace))
-		.logger(Logger::builder().build("app::cdterm", LevelFilter::Trace))
+		// .logger(Logger::builder().build("app::backend::db", LevelFilter::Trace))
+		.logger(Logger::builder().build("app::".to_owned() + APP_NAME, LevelFilter::Trace))
 		.build(Root::builder()
 			.appender("stdout")
 			.appender("file")
@@ -94,13 +100,10 @@ fn main() {
 		Some(s) => println!("device_id: {}", s),
 		None => println!("device_id: None"),
 	}
-	init_log();
+	init_log(".codigger");
 
 
+	info!("info");
+	warn!("warn");
 	// let text = "booting up".to_string();
-	trace!("{}","booting up");
-	debug!("{}","booting up");
-	info!("{}","booting up");
-	error!("{}","booting up");
-	warn!("{}","booting up");
 }
