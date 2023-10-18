@@ -27,7 +27,11 @@ use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use tokio::{select, signal};
 // use tokio::signal;
+#[cfg(target_os = "linux")]
 use tokio::signal::unix::{signal, SignalKind};
+#[cfg(target_os = "windows")]
+use tokio::signal::windows;
+
 use tokio_util::sync::CancellationToken;
 
 
@@ -50,6 +54,10 @@ struct Cli {
 	/// device id
 	#[arg(short = 'I', long = "device_id")]
 	device_id: Option<String>,
+
+	/// daemon mode
+	#[arg(short = 'D', long, default_value = "false")]
+	daemon: Option<bool>,
 }
 
 const APP_NAME: &str = "dterm";
@@ -114,31 +122,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		Some(s) => println!("device_id: {}", s),
 		None => println!("device_id: None"),
 	}
+
+	match cli.daemon {
+		Some(s) => println!("daemon: {}", s),
+		None => println!("daemon: None"),
+	}
 	init_log(".codigger");
 
-	// _ = handle_signal().await;
-	let token = CancellationToken::new();
-	info!("{} start shutdown", APP_NAME);
-
-	let cloned_token = token.clone();
-	let join_handle = tokio::spawn(async move {
-		select! {
-            _ = cloned_token.cancelled() => {
-            }
-            _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
-            }
-        }
-	});
-
-	tokio::spawn(async move {
-		tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-		token.cancel();
-	});
-
-	join_handle.await.unwrap();
+	 _ = handle_signal().await;
+	// let token = CancellationToken::new();
+	// info!("{} start shutdown", APP_NAME);
+	//
+	// let cloned_token = token.clone();
+	// let join_handle = tokio::spawn(async move {
+	// 	select! {
+    //         _ = cloned_token.cancelled() => {
+    //         }
+    //         _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+    //         }
+    //     }
+	// });
+	//
+	// tokio::spawn(async move {
+	// 	tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+	// 	token.cancel();
+	// });
+	//
+	// join_handle.await.unwrap();
 	Ok(())
 }
 
+#[cfg(target_os = "linux")]
 async fn handle_signal() -> Result<(), Box<dyn std::error::Error>> {
 	let mut term_stream = signal(SignalKind::terminate())?;
 	let mut quit_stream = signal(SignalKind::quit())?;
@@ -152,6 +166,29 @@ async fn handle_signal() -> Result<(), Box<dyn std::error::Error>> {
 	    }
 		_= int_stream.recv() => {
 	        println!("received SIGINT");
+	    }
+	}
+	Ok(())
+}
+
+#[cfg(target_os = "windows")]
+async fn handle_signal() -> Result<(), Box<dyn std::error::Error>> {
+	let mut term_stream = windows::ctrl_c()?;
+	let mut quit_stream = windows::ctrl_break()?;
+	let mut close_stream = windows::ctrl_close()?;
+	let mut shutdown_stream = windows::ctrl_shutdown()?;
+	select! {
+	    _ = term_stream.recv() => {
+	        println!("received Ctrl+C");
+	    }
+		_ = quit_stream.recv() => {
+	        println!("received Ctrl+Break");
+	    }
+		_= close_stream.recv() => {
+	        println!("received close");
+	    }
+		_= shutdown_stream.recv() => {
+	        println!("received shutdown");
 	    }
 	}
 	Ok(())
