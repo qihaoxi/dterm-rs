@@ -1,4 +1,7 @@
-#![cfg_attr(debug_assertions, allow(dead_code, unused_imports, unused_variables, unused_mut))]
+#![cfg_attr(
+debug_assertions,
+allow(dead_code, unused_imports, unused_variables, unused_mut)
+)]
 // #![cfg_attr(not(debug_assertions), deny(dead_code, unused_imports, unused_variables, unused_mut))]
 // #![allow(unused_must_use)]
 // #![allow(unused_parens)]
@@ -10,19 +13,22 @@
 // #![allow(unused_attributes)]
 // #![allow(unused_features)]
 
-
-use std::string::ToString;
-use clap::{Parser, Subcommand, Args};
-use log::{error, info, trace, warn, debug};
+use clap::{Args, Parser, Subcommand};
 use log::LevelFilter;
+use log::{debug, error, info, trace, warn};
 use log4rs;
 use log4rs::append::console::ConsoleAppender;
+use std::string::ToString;
+use clap::builder::styling::Reset;
 // use log4rs::append::file::FileAppender;
-use log4rs::encode::pattern::PatternEncoder;
-use log4rs::config::{Appender, Config, Logger, Root};
-use log4rs::append::rolling_file::RollingFileAppender;
 use log4rs::append::rolling_file::policy;
-// use colored::*;
+use log4rs::append::rolling_file::RollingFileAppender;
+use log4rs::config::{Appender, Config, Logger, Root};
+use log4rs::encode::pattern::PatternEncoder;
+use tokio::{select, signal};
+// use tokio::signal;
+use tokio::signal::unix::{signal, SignalKind};
+use tokio_util::sync::CancellationToken;
 
 
 #[derive(Parser)]
@@ -54,34 +60,42 @@ fn init_log(dir: &str) {
 	let trigger = policy::compound::trigger::size::SizeTrigger::new(128 * 1024 * 1024);
 
 	let roller = policy::compound::roll::fixed_window::FixedWindowRoller::builder()
-		.build((full_dir.clone() + ".{}").as_str(), 100).unwrap();
+		.build((full_dir.clone() + ".{}").as_str(), 100)
+		.unwrap();
 
 	let policy = policy::compound::CompoundPolicy::new(Box::new(trigger), Box::new(roller));
 
 	let file = RollingFileAppender::builder()
-		.encoder(Box::new(PatternEncoder::new("{h([{d(%Y-%m-%d %H:%M:%S)} {l} {t} {f}:{L}])} - {m} {n}")))
-		.build(full_dir.clone(), Box::new(policy)).unwrap();
+		.encoder(Box::new(PatternEncoder::new(
+			"{h([{d(%Y-%m-%d %H:%M:%S)} {l} {t} {f}:{L}])} - {m} {n}",
+		)))
+		.build(full_dir.clone(), Box::new(policy))
+		.unwrap();
 
 	let stdout = ConsoleAppender::builder()
-		.encoder(Box::new(PatternEncoder::new("{h([{d(%Y-%m-%d %H:%M:%S)} {l} {f}:{L}])} - {m} {n}")))
+		.encoder(Box::new(PatternEncoder::new(
+			"{h([{d(%Y-%m-%d %H:%M:%S)} {l} {f}:{L}])} - {m} {n}",
+		)))
 		.build();
-
 
 	let config = Config::builder()
 		.appender(Appender::builder().build("stdout", Box::new(stdout)))
 		.appender(Appender::builder().build("file", Box::new(file)))
 		// .logger(Logger::builder().build("app::backend::db", LevelFilter::Trace))
 		.logger(Logger::builder().build("app::".to_owned() + APP_NAME, LevelFilter::Trace))
-		.build(Root::builder()
-			.appender("stdout")
-			.appender("file")
-			.build(LevelFilter::Trace))
+		.build(
+			Root::builder()
+				.appender("stdout")
+				.appender("file")
+				.build(LevelFilter::Trace),
+		)
 		.unwrap();
 
 	log4rs::init_config(config).unwrap();
 }
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let cli = Cli::parse();
 
 	let d = cli.debug;
@@ -102,8 +116,43 @@ fn main() {
 	}
 	init_log(".codigger");
 
+	// _ = handle_signal().await;
+	let token = CancellationToken::new();
+	info!("{} start shutdown", APP_NAME);
 
-	info!("info");
-	warn!("warn");
-	// let text = "booting up".to_string();
+	let cloned_token = token.clone();
+	let join_handle = tokio::spawn(async move {
+		select! {
+            _ = cloned_token.cancelled() => {
+            }
+            _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+            }
+        }
+	});
+
+	tokio::spawn(async move {
+		tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+		token.cancel();
+	});
+
+	join_handle.await.unwrap();
+	Ok(())
+}
+
+async fn handle_signal() -> Result<(), Box<dyn std::error::Error>> {
+	let mut term_stream = signal(SignalKind::terminate())?;
+	let mut quit_stream = signal(SignalKind::quit())?;
+	let mut int_stream = signal(SignalKind::interrupt())?;
+	select! {
+	    _ = term_stream.recv() => {
+			println!("received SIGTERM");
+		}
+		_ = quit_stream.recv() => {
+	        println!("received SIGQUIT");
+	    }
+		_= int_stream.recv() => {
+	        println!("received SIGINT");
+	    }
+	}
+	Ok(())
 }
