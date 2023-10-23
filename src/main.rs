@@ -13,15 +13,13 @@ allow(dead_code, unused_imports, unused_variables, unused_mut)
 // #![allow(unused_attributes)]
 // #![allow(unused_features)]
 
-
-
+use clap::builder::styling::Reset;
 use clap::{Args, Parser, Subcommand};
 use log::LevelFilter;
 use log::{debug, error, info, trace, warn};
 use log4rs;
 use log4rs::append::console::ConsoleAppender;
 use std::string::ToString;
-use clap::builder::styling::Reset;
 // use log4rs::append::file::FileAppender;
 use log4rs::append::rolling_file::policy;
 use log4rs::append::rolling_file::RollingFileAppender;
@@ -34,10 +32,10 @@ use tokio::signal::unix::{signal, SignalKind};
 #[cfg(target_os = "windows")]
 use tokio::signal::windows;
 
+
 use tokio_util::sync::CancellationToken;
 
 mod cancel;
-
 
 #[derive(Parser)]
 #[command(author, version, about, long_about)]
@@ -133,67 +131,67 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	}
 	init_log(".codigger");
 
-	 _ = handle_signal().await;
-	// let token = CancellationToken::new();
-	// info!("{} start shutdown", APP_NAME);
-	//
-	// let cloned_token = token.clone();
-	// let join_handle = tokio::spawn(async move {
-	// 	select! {
-    //         _ = cloned_token.cancelled() => {
-    //         }
-    //         _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
-    //         }
-    //     }
-	// });
-	//
-	// tokio::spawn(async move {
-	// 	tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-	// 	token.cancel();
-	// });
-	//
-	// join_handle.await.unwrap();
+	let (mut cancel_caller, mut cancel_watcher) = cancel::cancel::new_cancel();
+	tokio::spawn(async move {
+		cancel_watcher.wait().await;
+		println!("work task start clean resource");
+		tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+		println!("work task end");
+	});
+
+	#[cfg(target_os = "linux")]
+		let _ = handle_signal(&mut cancel_caller).await;
+	#[cfg(target_os = "windows")]
+		let _ = handle_signal(&mut cancel_caller).await;
 	Ok(())
 }
 
 #[cfg(target_os = "linux")]
-async fn handle_signal() -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_signal(caller: &mut CancelCaller) -> Result<(), Box<dyn std::error::Error>> {
 	let mut term_stream = signal(SignalKind::terminate())?;
 	let mut quit_stream = signal(SignalKind::quit())?;
 	let mut int_stream = signal(SignalKind::interrupt())?;
 	select! {
-	    _ = term_stream.recv() => {
-			println!("received SIGTERM");
-		}
-		_ = quit_stream.recv() => {
-	        println!("received SIGQUIT");
-	    }
-		_= int_stream.recv() => {
-	        println!("received SIGINT");
-	    }
-	}
+        _ = term_stream.recv() => {
+            println!("received SIGTERM");
+        }
+        _ = quit_stream.recv() => {
+            println!("received SIGQUIT");
+        }
+        _= int_stream.recv() => {
+            println!("received SIGINT");
+        }
+    }
+
+	println!("start cancel all tasks");
+	caller.cancel_and_wait().await;
 	Ok(())
 }
 
 #[cfg(target_os = "windows")]
-async fn handle_signal() -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_signal(caller: &mut cancel::cancel::CancelCaller) -> Result<(), Box<dyn std::error::Error>> {
 	let mut term_stream = windows::ctrl_c()?;
 	let mut quit_stream = windows::ctrl_break()?;
 	let mut close_stream = windows::ctrl_close()?;
 	let mut shutdown_stream = windows::ctrl_shutdown()?;
 	select! {
-	    _ = term_stream.recv() => {
-	        println!("received Ctrl+C");
-	    }
-		_ = quit_stream.recv() => {
-	        println!("received Ctrl+Break");
-	    }
-		_= close_stream.recv() => {
-	        println!("received close");
-	    }
-		_= shutdown_stream.recv() => {
-	        println!("received shutdown");
-	    }
-	}
+        _ = term_stream.recv() => {
+            println!("received Ctrl+C");
+        }
+        _ = quit_stream.recv() => {
+            println!("received Ctrl+Break");
+        }
+        _= close_stream.recv() => {
+            println!("received close");
+        }
+        _= shutdown_stream.recv() => {
+            println!("received shutdown");
+        }
+    }
+
+	println!("notify all task exit");
+	caller.cancel_and_wait().await;
+
+	println!("all task exit, main process exit");
 	Ok(())
 }
