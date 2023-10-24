@@ -26,6 +26,7 @@ use log4rs::append::rolling_file::RollingFileAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use tokio::{select, signal};
+use colored::*;
 // use tokio::signal;
 #[cfg(target_os = "linux")]
 use tokio::signal::unix::{signal, SignalKind};
@@ -64,7 +65,7 @@ struct Cli {
 
 const APP_NAME: &str = "dterm";
 
-fn init_log(dir: &str) {
+fn init_log(dir: &str, level: LevelFilter) {
 	let full_dir = format!("{}/{}/log/{}.log", dir, APP_NAME, APP_NAME);
 
 	let trigger = policy::compound::trigger::size::SizeTrigger::new(128 * 1024 * 1024);
@@ -92,12 +93,12 @@ fn init_log(dir: &str) {
 		.appender(Appender::builder().build("stdout", Box::new(stdout)))
 		.appender(Appender::builder().build("file", Box::new(file)))
 		// .logger(Logger::builder().build("app::backend::db", LevelFilter::Trace))
-		.logger(Logger::builder().build("app::".to_owned() + APP_NAME, LevelFilter::Trace))
+		.logger(Logger::builder().build("app::".to_owned() + APP_NAME, level))
 		.build(
 			Root::builder()
 				.appender("stdout")
 				.appender("file")
-				.build(LevelFilter::Trace),
+				.build(level),
 		)
 		.unwrap();
 
@@ -108,46 +109,59 @@ fn init_log(dir: &str) {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let cli = Cli::parse();
 
-	let d = cli.debug;
-	println!("debug: {}", d);
-
+	println!("{}", format!("{}", "dterm arguments: ").italic().bold().bright_yellow());
 	match cli.log_level {
-		Some(s) => println!("log_level: {}", s),
-		None => println!("log_level: None"),
+		Some(s) => {
+			println!("{}", format!("log_level: {}", s).italic().bright_yellow());
+			let level = match s.to_lowercase().as_str() {
+				"error" => LevelFilter::Error,
+				"warn" => LevelFilter::Warn,
+				"info" => LevelFilter::Info,
+				"debug" => LevelFilter::Debug,
+				"trace" => LevelFilter::Trace,
+				_ => LevelFilter::Info,
+			};
+			init_log(".codigger", level);
+		}
+		None => {
+			println!("{}", "log_level: None, default: info".italic().bold().bright_yellow());
+			init_log(".codigger", LevelFilter::Info);
+		}
 	}
+
+	let d = cli.debug;
+	println!("{}", format!("debug: {}", d).italic().bold().bright_yellow());
 
 	match cli.host {
-		Some(h) => println!("host: {}", h),
-		None => println!("host: None"),
+		Some(h) => println!("{}", format!("host: {}", h).italic().bold().bright_yellow()),
+		None => println!("{}", format!("host: none").italic().bold().bright_red()),
 	}
 	match cli.device_id {
-		Some(s) => println!("device_id: {}", s),
-		None => println!("device_id: None"),
+		Some(s) => println!("{}",format!( "device_id: {}", s).italic().bold().bright_yellow()),
+		None => println!("{}",format!( "device_id: none").italic().bold().bright_red()),
 	}
 
 	match cli.daemon {
-		Some(s) => println!("daemon: {}", s),
-		None => println!("daemon: None"),
+		Some(s) => println!("{}",format!( "daemon: {}", s).italic().bold().bright_yellow()),
+		None => println!("{}",format!( "daemon: none").italic().bold().bright_red()),
 	}
-	init_log(".codigger");
+
 
 	let (mut cancel_caller, mut cancel_watcher) = cancel::cancel::new_cancel();
 	tokio::spawn(async move {
 		cancel_watcher.wait().await;
-		println!("work task start clean resource");
+		info!("work task start clean resource");
 		tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-		println!("work task end");
+		info!("work task end");
 	});
 
-	#[cfg(target_os = "linux")]
-		let _ = handle_signal(&mut cancel_caller).await;
-	#[cfg(target_os = "windows")]
-		let _ = handle_signal(&mut cancel_caller).await;
+	let _ = handle_signal(&mut cancel_caller).await;
+	info!("main process exit");
 	Ok(())
 }
 
 #[cfg(target_os = "linux")]
-async fn handle_signal(caller: &mut CancelCaller) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_signal(caller: &mut cancel::cancel::CancelCaller) -> Result<(), Box<dyn std::error::Error>> {
 	let mut term_stream = signal(SignalKind::terminate())?;
 	let mut quit_stream = signal(SignalKind::quit())?;
 	let mut int_stream = signal(SignalKind::interrupt())?;
@@ -176,22 +190,22 @@ async fn handle_signal(caller: &mut cancel::cancel::CancelCaller) -> Result<(), 
 	let mut shutdown_stream = windows::ctrl_shutdown()?;
 	select! {
         _ = term_stream.recv() => {
-            println!("received Ctrl+C");
+            info!("received Ctrl+C");
         }
         _ = quit_stream.recv() => {
-            println!("received Ctrl+Break");
+            info!("received Ctrl+Break");
         }
         _= close_stream.recv() => {
-            println!("received close");
+            info!("received close");
         }
         _= shutdown_stream.recv() => {
-            println!("received shutdown");
+            info!("received shutdown");
         }
     }
 
-	println!("notify all task exit");
+	info!("notify all task exit");
 	caller.cancel_and_wait().await;
 
-	println!("all task exit, main process exit");
+	info!("all task exit, main process exit");
 	Ok(())
 }
