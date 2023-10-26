@@ -33,8 +33,10 @@ use tokio::signal::unix::{signal, SignalKind};
 #[cfg(target_os = "windows")]
 use tokio::signal::windows;
 
-
 use tokio_util::sync::CancellationToken;
+
+use single_instance::SingleInstance;
+
 
 mod cancel;
 
@@ -137,15 +139,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		None => println!("{}", format!("host: none").italic().bold().bright_red()),
 	}
 	match cli.device_id {
-		Some(s) => println!("{}",format!( "device_id: {}", s).italic().bold().bright_yellow()),
-		None => println!("{}",format!( "device_id: none").italic().bold().bright_red()),
+		Some(s) => println!("{}", format!("device_id: {}", s).italic().bold().bright_yellow()),
+		None => println!("{}", format!("device_id: none").italic().bold().bright_red()),
 	}
 
 	match cli.daemon {
-		Some(s) => println!("{}",format!( "daemon: {}", s).italic().bold().bright_yellow()),
-		None => println!("{}",format!( "daemon: none").italic().bold().bright_red()),
+		Some(s) => println!("{}", format!("daemon: {}", s).italic().bold().bright_yellow()),
+		None => println!("{}", format!("daemon: none").italic().bold().bright_red()),
 	}
 
+	let instance = match SingleInstance::new(APP_NAME) {
+		Ok(instance) => {
+			if instance.is_single() {
+				info!("{} is single instance", APP_NAME);
+			} else {
+				error!("{} is already running", APP_NAME);
+				return Ok(());
+			}
+			instance
+		}
+		Err(e) => {
+			error!("{} is already running, error: {}", APP_NAME, e);
+			return Ok(());
+		}
+	};
 
 	let (mut cancel_caller, mut cancel_watcher) = cancel::cancel::new_cancel();
 	tokio::spawn(async move {
@@ -167,17 +184,17 @@ async fn handle_signal(caller: &mut cancel::cancel::CancelCaller) -> Result<(), 
 	let mut int_stream = signal(SignalKind::interrupt())?;
 	select! {
         _ = term_stream.recv() => {
-            println!("received SIGTERM");
+            info!("received SIGTERM");
         }
         _ = quit_stream.recv() => {
-            println!("received SIGQUIT");
+            info!("received SIGQUIT");
         }
         _= int_stream.recv() => {
-            println!("received SIGINT");
+            info!("received SIGINT");
         }
     }
 
-	println!("start cancel all tasks");
+	info!("start cancel all tasks");
 	caller.cancel_and_wait().await;
 	Ok(())
 }
