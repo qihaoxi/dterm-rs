@@ -13,6 +13,7 @@ allow(dead_code, unused_imports, unused_variables, unused_mut)
 // #![allow(unused_attributes)]
 // #![allow(unused_features)]
 
+use std::path::PathBuf;
 use clap::builder::styling::Reset;
 use clap::{Args, Parser, Subcommand};
 use log::LevelFilter;
@@ -27,18 +28,22 @@ use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use tokio::{select, signal};
 use colored::*;
+use tokio_util::sync::CancellationToken;
+use single_instance::SingleInstance;
+use dirs;
+
 // use tokio::signal;
 #[cfg(target_os = "linux")]
 use tokio::signal::unix::{signal, SignalKind};
 #[cfg(target_os = "windows")]
 use tokio::signal::windows;
 
-use tokio_util::sync::CancellationToken;
-
-use single_instance::SingleInstance;
-
 
 mod cancel;
+mod daemon;
+mod config;
+
+use config::config::Config as dterm_config;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about)]
@@ -56,6 +61,10 @@ struct Cli {
 	// #[arg(short, long)]
 	host: Option<String>,
 
+	/// host port
+	// #[arg(short, long)]
+	port: Option<String>,
+
 	/// device id
 	#[arg(short = 'I', long = "device_id")]
 	device_id: Option<String>,
@@ -67,13 +76,25 @@ struct Cli {
 
 const APP_NAME: &str = "dterm";
 
-fn init_log(dir: &str, level: LevelFilter) {
-	let full_dir = format!("{}/{}/log/{}.log", dir, APP_NAME, APP_NAME);
+fn init_log(dir: PathBuf, level: LevelFilter) {
+	// let full_dir = format!("{}/{}/log/{}.log", dir, APP_NAME, APP_NAME);
+	println!("{}", format!("log dir: {}", dir.to_str().unwrap()).italic().bold().bright_yellow());
+
+	let log_name=dir.join(APP_NAME).join(".log");
+	let log_name_str= match log_name.to_str(){
+		Some(s)=>s,
+		None => {
+			println!("{}", format!("log_name: none").italic().bold().bright_red());
+			""
+		}
+	};
+	println!("{}", format!("log_name: {}", log_name_str).italic().bold().bright_yellow());
 
 	let trigger = policy::compound::trigger::size::SizeTrigger::new(128 * 1024 * 1024);
 
 	let roller = policy::compound::roll::fixed_window::FixedWindowRoller::builder()
-		.build((full_dir.clone() + ".{}").as_str(), 100)
+		// .build((full_dir.clone() + ".{}").as_str(), 100)
+		.build(log_name.join(".{}").to_str().unwrap(), 100)
 		.unwrap();
 
 	let policy = policy::compound::CompoundPolicy::new(Box::new(trigger), Box::new(roller));
@@ -82,7 +103,7 @@ fn init_log(dir: &str, level: LevelFilter) {
 		.encoder(Box::new(PatternEncoder::new(
 			"{h([{d(%Y-%m-%d %H:%M:%S)} {l} {t} {f}:{L}])} - {m} {n}",
 		)))
-		.build(full_dir.clone(), Box::new(policy))
+		.build(log_name, Box::new(policy))
 		.unwrap();
 
 	let stdout = ConsoleAppender::builder()
@@ -107,12 +128,11 @@ fn init_log(dir: &str, level: LevelFilter) {
 	log4rs::init_config(config).unwrap();
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-	let cli = Cli::parse();
+fn parse_args(cli: &mut Cli, cfg: &mut dterm_config) {
+	let mut cfg = dterm_config::new();
 
 	println!("{}", format!("{}", "dterm arguments: ").italic().bold().bright_yellow());
-	match cli.log_level {
+	match &cli.log_level {
 		Some(s) => {
 			println!("{}", format!("log_level: {}", s).italic().bright_yellow());
 			let level = match s.to_lowercase().as_str() {
@@ -123,30 +143,81 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 				"trace" => LevelFilter::Trace,
 				_ => LevelFilter::Info,
 			};
-			init_log(".codigger", level);
+			init_log(cfg.get_log_dir(), level);
 		}
 		None => {
 			println!("{}", "log_level: None, default: info".italic().bold().bright_yellow());
-			init_log(".codigger", LevelFilter::Info);
+			init_log(cfg.get_log_dir(), LevelFilter::Info);
 		}
 	}
 
-	let d = cli.debug;
+	let d = &cli.debug;
+	cfg.set_debug(d.clone());
 	println!("{}", format!("debug: {}", d).italic().bold().bright_yellow());
 
-	match cli.host {
-		Some(h) => println!("{}", format!("host: {}", h).italic().bold().bright_yellow()),
-		None => println!("{}", format!("host: none").italic().bold().bright_red()),
-	}
-	match cli.device_id {
-		Some(s) => println!("{}", format!("device_id: {}", s).italic().bold().bright_yellow()),
-		None => println!("{}", format!("device_id: none").italic().bold().bright_red()),
-	}
+	let host = match &cli.host {
+		Some(h) => {
+			println!("{}", format!("host: {}", h).italic().bold().bright_yellow());
+			h
+		}
+		None => {
+			println!("{}", format!("host: none").italic().bold().bright_red());
+			""
+		}
+	};
 
-	match cli.daemon {
-		Some(s) => println!("{}", format!("daemon: {}", s).italic().bold().bright_yellow()),
-		None => println!("{}", format!("daemon: none").italic().bold().bright_red()),
-	}
+	let port = match &cli.port {
+		Some(p) => {
+			println!("{}", format!("port: {}", p).italic().bold().bright_yellow());
+			p
+		}
+		None => {
+			println!("{}", format!("port: none").italic().bold().bright_red());
+			""
+		}
+	};
+	cfg.set_server(host, port);
+
+	let device_id = match &cli.device_id {
+		Some(s) => {
+			println!("{}", format!("device_id: {}", s).italic().bold().bright_yellow());
+			s
+		}
+		None => {
+			println!("{}", format!("device_id: none").italic().bold().bright_red());
+			""
+		}
+	};
+	cfg.set_device_id(device_id.to_string());
+
+	let daemon = match &cli.daemon {
+		Some(s) => {
+			println!("{}", format!("daemon: {}", s).italic().bold().bright_yellow());
+			true
+		}
+		None => {
+			println!("{}", format!("daemon: none").italic().bold().bright_red());
+			false
+		}
+	};
+	cfg.set_daemon(daemon);
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+	let home_dir = match dirs::home_dir() {
+		Some(p) => p,
+		None => {
+			println!("{}", format!("can not get home dir").italic().bold().bright_yellow());
+			return Ok(());
+		}
+	};
+	let mut cfg = dterm_config::new();
+	cfg.set_app_dir(home_dir.join(".codigger").join(APP_NAME));
+	cfg.set_log_dir(cfg.get_app_dir().join("log"));
+
+	// set config
+	let cli = parse_args(&mut Cli::parse(), &mut cfg);
 
 	let instance = match SingleInstance::new(APP_NAME) {
 		Ok(instance) => {
@@ -164,16 +235,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		}
 	};
 
-	let (mut cancel_caller, mut cancel_watcher) = cancel::cancel::new_cancel();
-	tokio::spawn(async move {
-		cancel_watcher.wait().await;
-		info!("work task start clean resource");
-		tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-		info!("work task end");
-	});
-
-	let _ = handle_signal(&mut cancel_caller).await;
-	info!("main process exit");
+	dterm_loop().await?;
 	Ok(())
 }
 
@@ -224,5 +286,24 @@ async fn handle_signal(caller: &mut cancel::cancel::CancelCaller) -> Result<(), 
 	caller.cancel_and_wait().await;
 
 	info!("all task exit, main process exit");
+	Ok(())
+}
+
+
+async fn dterm_loop() -> Result<(), Box<dyn std::error::Error>> {
+	let (mut cancel_caller, mut cancel_watcher) = cancel::cancel::new_cancel();
+
+	tokio::spawn(async move {
+		select! {
+			_ = cancel_watcher.wait() => {
+				info!("work task start clean resource");
+				tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+				info!("work task end");
+			}
+		}
+	});
+
+	let _ = handle_signal(&mut cancel_caller).await;
+	info!("main process exit");
 	Ok(())
 }
