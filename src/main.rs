@@ -77,12 +77,9 @@ struct Cli {
 const APP_NAME: &str = "dterm";
 
 fn init_log(dir: PathBuf, level: LevelFilter) {
-	// let full_dir = format!("{}/{}/log/{}.log", dir, APP_NAME, APP_NAME);
-	println!("{}", format!("log dir: {}", dir.to_str().unwrap()).italic().bold().bright_yellow());
-
-	let log_name=dir.join(APP_NAME).join(".log");
-	let log_name_str= match log_name.to_str(){
-		Some(s)=>s,
+	let log_name = dir.join(APP_NAME.to_owned() + ".log");
+	let log_name_str = match log_name.to_str() {
+		Some(s) => s,
 		None => {
 			println!("{}", format!("log_name: none").italic().bold().bright_red());
 			""
@@ -129,9 +126,7 @@ fn init_log(dir: PathBuf, level: LevelFilter) {
 }
 
 fn parse_args(cli: &mut Cli, cfg: &mut dterm_config) {
-	let mut cfg = dterm_config::new();
-
-	println!("{}", format!("{}", "dterm arguments: ").italic().bold().bright_yellow());
+	println!("{}", format!("{} arguments", APP_NAME).italic().bold().bright_yellow());
 	match &cli.log_level {
 		Some(s) => {
 			println!("{}", format!("log_level: {}", s).italic().bright_yellow());
