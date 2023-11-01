@@ -42,8 +42,9 @@ use tokio::signal::windows;
 mod cancel;
 mod daemon;
 mod config;
+mod tty;
 
-use config::config::Config as dterm_config;
+use config::Config as dterm_config;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about)]
@@ -198,41 +199,7 @@ fn parse_args(cli: &mut Cli, cfg: &mut dterm_config) {
 	cfg.set_daemon(daemon);
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-	let home_dir = match dirs::home_dir() {
-		Some(p) => p,
-		None => {
-			println!("{}", format!("can not get home dir").italic().bold().bright_yellow());
-			return Ok(());
-		}
-	};
-	let mut cfg = dterm_config::new();
-	cfg.set_app_dir(home_dir.join(".codigger").join(APP_NAME));
-	cfg.set_log_dir(cfg.get_app_dir().join("log"));
 
-	// set config
-	let cli = parse_args(&mut Cli::parse(), &mut cfg);
-
-	let instance = match SingleInstance::new(APP_NAME) {
-		Ok(instance) => {
-			if instance.is_single() {
-				info!("{} is single instance", APP_NAME);
-			} else {
-				error!("{} is already running", APP_NAME);
-				return Ok(());
-			}
-			instance
-		}
-		Err(e) => {
-			error!("{} is already running, error: {}", APP_NAME, e);
-			return Ok(());
-		}
-	};
-
-	dterm_loop().await?;
-	Ok(())
-}
 
 #[cfg(target_os = "linux")]
 async fn handle_signal(caller: &mut cancel::cancel::CancelCaller) -> Result<(), Box<dyn std::error::Error>> {
@@ -285,7 +252,12 @@ async fn handle_signal(caller: &mut cancel::cancel::CancelCaller) -> Result<(), 
 }
 
 
-async fn dterm_loop() -> Result<(), Box<dyn std::error::Error>> {
+async fn dterm_loop(cfg:&config::Config) -> Result<(), Box<dyn std::error::Error>> {
+	if cfg.get_device_id().is_empty() {
+		error!("device_id is empty, you must specify an id for your device");
+		return Ok(());
+	}
+
 	let (mut cancel_caller, mut cancel_watcher) = cancel::cancel::new_cancel();
 
 	tokio::spawn(async move {
@@ -300,5 +272,41 @@ async fn dterm_loop() -> Result<(), Box<dyn std::error::Error>> {
 
 	let _ = handle_signal(&mut cancel_caller).await;
 	info!("main process exit");
+	Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+	let home_dir = match dirs::home_dir() {
+		Some(p) => p,
+		None => {
+			println!("{}", format!("can not get home dir").italic().bold().bright_yellow());
+			return Ok(());
+		}
+	};
+	let mut cfg = dterm_config::new();
+	cfg.set_app_dir(home_dir.join(".codigger").join(APP_NAME));
+	cfg.set_log_dir(cfg.get_app_dir().join("log"));
+
+	// set config
+	let cli = parse_args(&mut Cli::parse(), &mut cfg);
+
+	let instance = match SingleInstance::new(APP_NAME) {
+		Ok(instance) => {
+			if instance.is_single() {
+				info!("{} is single instance", APP_NAME);
+			} else {
+				error!("{} is already running", APP_NAME);
+				return Ok(());
+			}
+			instance
+		}
+		Err(e) => {
+			error!("{} is already running, error: {}", APP_NAME, e);
+			return Ok(());
+		}
+	};
+
+	dterm_loop(&cfg).await?;
 	Ok(())
 }
