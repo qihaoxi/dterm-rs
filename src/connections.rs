@@ -1,6 +1,12 @@
-use bytes::{Buf, BytesMut};
+use std::any::Any;
+use bytes::{Buf, BytesMut, Bytes};
+
 use tokio::io::{AsyncReadExt, BufWriter, AsyncWriteExt, AsyncSeekExt};
 use tokio::net::TcpStream;
+use std::io::{self, Cursor, Seek};
+
+use crate::packet;
+
 
 const MAX_BUFFER_SIZE: usize = 8192;
 
@@ -31,5 +37,26 @@ impl Connection {
 		}
 		println!("read {} bytes", n);
 		Ok(())
+	}
+
+
+	fn parse(&mut self) -> std::result::Result<Option<packet::Packet>, Box<dyn std::error::Error + Send + Sync>> {
+		use packet::Error::Incomplete;
+		let mut buf = Cursor::new(&self.buffer[..]);
+
+		if buf.remaining() < 3 {
+			return Ok(None);
+		}
+
+		let packet_type = buf.get_u8();
+		let packet_length = buf.get_u16();
+		buf.advance(3);
+		if buf.remaining() < packet_length.clone() as usize {
+			return Ok(None);
+		}
+
+		let packet_data = buf.copy_to_bytes(packet_length.clone() as usize);
+		let packet = packet::Packet::new(packet_type, packet_length, packet_data);
+		Ok(Some(packet))
 	}
 }
