@@ -38,11 +38,13 @@ use tokio::signal::unix::{signal, SignalKind};
 #[cfg(target_os = "windows")]
 use tokio::signal::windows;
 
-
-mod cancel;
 mod daemon;
 mod config;
 mod tty;
+mod connections;
+mod packet;
+mod cancel;
+
 
 use config::Config as dterm_config;
 
@@ -224,7 +226,7 @@ async fn handle_signal(caller: &mut cancel::cancel::CancelCaller) -> Result<(), 
 }
 
 #[cfg(target_os = "windows")]
-async fn handle_signal(caller: &mut cancel::cancel::CancelCaller) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_signal(caller: &mut cancel::CancelCaller) -> Result<(), Box<dyn std::error::Error>> {
 	let mut term_stream = windows::ctrl_c()?;
 	let mut quit_stream = windows::ctrl_break()?;
 	let mut close_stream = windows::ctrl_close()?;
@@ -258,7 +260,7 @@ async fn dterm_loop(cfg:&config::Config) -> Result<(), Box<dyn std::error::Error
 		return Ok(());
 	}
 
-	let (mut cancel_caller, mut cancel_watcher) = cancel::cancel::new_cancel();
+	let (mut cancel_caller, mut cancel_watcher) = cancel::new_cancel();
 
 	tokio::spawn(async move {
 		select! {
