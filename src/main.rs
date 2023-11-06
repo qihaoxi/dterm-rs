@@ -40,7 +40,7 @@ use tokio::signal::windows;
 
 mod daemon;
 mod config;
-mod tty;
+mod tty_manager;
 mod connections;
 mod packet;
 mod cancel;
@@ -61,15 +61,15 @@ struct Cli {
 	log_level: Option<String>,
 
 	/// host address
-	// #[arg(short, long)]
+	#[arg(short='s', long,default_value = "127.0.0.1")]
 	host: Option<String>,
 
 	/// host port
-	// #[arg(short, long)]
+	#[arg(short, long,default_value = "8331")]
 	port: Option<String>,
 
 	/// device id
-	#[arg(short = 'I', long = "device_id")]
+	#[arg(short = 'I', long = "device_id",default_value = "1111")]
 	device_id: Option<String>,
 
 	/// daemon mode
@@ -260,13 +260,30 @@ async fn dterm_loop(cfg: &config::Config) -> Result<(), Box<dyn std::error::Erro
 	}
 
 	let (mut cancel_caller, mut cancel_watcher) = cancel::new_cancel();
+	let tty_watcher=cancel_watcher.clone();
 
+	let mut tty_manager = tty_manager::TtyManager::new(cfg.get_server());
 	tokio::spawn(async move {
 		select! {
 			_ = cancel_watcher.wait() => {
 				info!("work task start clean resource");
 				tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 				info!("work task end");
+			}
+		}
+	});
+
+	tokio::spawn(async move {
+		select! {
+			tty_manager_result = tty_manager.run() => {
+				match tty_manager_result {
+					Ok(_) => {
+						info!("tty_manager run success");
+					}
+					Err(e) => {
+						error!("tty_manager run failed, {:?}", e);
+					}
+				}
 			}
 		}
 	});

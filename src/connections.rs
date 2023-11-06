@@ -20,14 +20,14 @@ pub struct Connection {
 }
 
 impl Connection {
-	fn new(stream: TcpStream) -> Self {
+	pub(crate) fn new(stream: TcpStream) -> Self {
 		Self {
 			stream: BufWriter::new(stream),
 			buffer: BytesMut::with_capacity(MAX_BUFFER_SIZE),
 		}
 	}
 
-	pub async fn read(&mut self) -> Result<Option<Packet>, Box<dyn std::error::Error>> {
+	pub async fn read_packet(&mut self) -> Result<Option<Packet>, Box<dyn std::error::Error>> {
 		loop {
 			if let Some(packet) = self.parse()? {
 				return Ok(Some(packet));
@@ -43,8 +43,12 @@ impl Connection {
 		}
 	}
 
-	pub async fn write(&mut self, packet: &Packet) -> io::Result<> {
-
+	pub async fn write_packet(&mut self, packet: &Packet) -> io::Result<()> {
+		self.stream.write_u8(packet.packet_type.clone()).await?;
+		self.stream.write_u16(packet.packet_length.clone()).await?;
+		self.stream.write_all(&packet.packet_data).await?;
+		self.stream.flush().await?;
+		Ok(())
 	}
 
 	fn parse(&mut self) -> std::result::Result<Option<Packet>, Box<dyn error::Error>> {
