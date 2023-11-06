@@ -202,9 +202,8 @@ fn parse_args(cli: &mut Cli, cfg: &mut dterm_config) {
 }
 
 
-
 #[cfg(target_os = "linux")]
-async fn handle_signal(caller: &mut cancel::cancel::CancelCaller) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_signal(caller: &mut cancel::CancelCaller) -> Result<(), Box<dyn std::error::Error>> {
 	let mut term_stream = signal(SignalKind::terminate())?;
 	let mut quit_stream = signal(SignalKind::quit())?;
 	let mut int_stream = signal(SignalKind::interrupt())?;
@@ -254,7 +253,7 @@ async fn handle_signal(caller: &mut cancel::CancelCaller) -> Result<(), Box<dyn 
 }
 
 
-async fn dterm_loop(cfg:&config::Config) -> Result<(), Box<dyn std::error::Error>> {
+async fn dterm_loop(cfg: &config::Config) -> Result<(), Box<dyn std::error::Error>> {
 	if cfg.get_device_id().is_empty() {
 		error!("device_id is empty, you must specify an id for your device");
 		return Ok(());

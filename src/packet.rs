@@ -20,7 +20,7 @@ enum PacketType  {
 pub struct Packet{
 	pub packet_type: u8,
 	pub packet_length: u16,
-	pub packet_data: Vec<u8>,
+	pub packet_data: bytes::Bytes,
 }
 
 #[derive(Debug)]
@@ -33,7 +33,7 @@ pub enum Error {
 }
 
 impl Packet {
-	pub fn new(packet_type: u8, packet_length: u16, packet_data: Vec<u8>) -> Self {
+	pub fn new(packet_type: u8, packet_length: u16, packet_data: Bytes) -> Self {
 		Self {
 			packet_type,
 			packet_length,

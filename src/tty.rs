@@ -19,7 +19,7 @@ struct TtyManager {
 	tty_map: std::collections::HashMap<String, Tty>,
 	lock: tokio::sync::Mutex<()>,
 	status: TtyStatus,
-	sock:  tokio::net::TcpSocket,
+	// sock:  tokio::net::TcpSocket,
 }
 
 
@@ -32,7 +32,6 @@ impl TtyManager {
 			lock: tokio::sync::Mutex::new(()),
 			status: TtyStatus::Disconnected,
 			server_addr: addr,
-			sock: tokio::net::TcpSocket::new_v4(),
 		}
 	}
 

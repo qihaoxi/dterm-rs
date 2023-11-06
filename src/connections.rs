@@ -1,11 +1,14 @@
 use std::any::Any;
+use std::error;
 use bytes::{Buf, BytesMut, Bytes};
 
 use tokio::io::{AsyncReadExt, BufWriter, AsyncWriteExt, AsyncSeekExt};
 use tokio::net::TcpStream;
 use std::io::{self, Cursor, Seek};
+// use tokio_util::bytes::Buf;
 
 use crate::packet;
+use crate::packet::Packet;
 
 
 const MAX_BUFFER_SIZE: usize = 8192;
@@ -24,23 +27,27 @@ impl Connection {
 		}
 	}
 
-	pub async fn read(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-		let mut buf = [0u8; 1024];
-		let mut n = 0;
+	pub async fn read(&mut self) -> Result<Option<Packet>, Box<dyn std::error::Error>> {
 		loop {
-			let r = self.stream.read(&mut buf).await?;
-			if r == 0 {
-				break;
+			if let Some(packet) = self.parse()? {
+				return Ok(Some(packet));
 			}
-			n += r;
-			self.buffer.extend_from_slice(&buf[..r]);
+
+			if 0 == self.stream.read_buf(&mut self.buffer).await? {
+				if self.buffer.is_empty() {
+					return Ok(None);
+				} else {
+					return Err("connection reset by peer".into());
+				}
+			}
 		}
-		println!("read {} bytes", n);
-		Ok(())
 	}
 
+	pub async fn write(&mut self, packet: &Packet) -> io::Result<> {
 
-	fn parse(&mut self) -> std::result::Result<Option<packet::Packet>, Box<dyn std::error::Error + Send + Sync>> {
+	}
+
+	fn parse(&mut self) -> std::result::Result<Option<Packet>, Box<dyn error::Error>> {
 		use packet::Error::Incomplete;
 		let mut buf = Cursor::new(&self.buffer[..]);
 
