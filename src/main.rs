@@ -260,7 +260,7 @@ async fn dterm_loop(cfg: &config::Config) -> Result<(), Box<dyn std::error::Erro
 	}
 
 	let (mut cancel_caller, mut cancel_watcher) = cancel::new_cancel();
-	let tty_watcher=cancel_watcher.clone();
+	let mut tty_watcher = cancel_watcher.clone();
 
 	let mut tty_manager = tty_manager::TtyManager::new(cfg.get_server());
 	tokio::spawn(async move {
@@ -285,7 +285,11 @@ async fn dterm_loop(cfg: &config::Config) -> Result<(), Box<dyn std::error::Erro
 					}
 				}
 			}
+			tty_watcher_result = tty_watcher.wait() => {
+				info!("tty_watcher wait exit");
+			}
 		}
+		info!("tty_manager task exit");
 	});
 
 	let _ = handle_signal(&mut cancel_caller).await;
@@ -325,6 +329,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		}
 	};
 
-	dterm_loop(&cfg).await?;
+	dterm_loop(&cfg).await.expect("TODO: panic message");
 	Ok(())
 }
