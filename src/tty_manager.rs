@@ -1,10 +1,10 @@
 use crate::connections::Connection;
+use crate::packet;
 use log::info;
 use log4rs;
 use std::future::Future;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
-use crate::packet;
 
 struct Tty {
     sid: String,

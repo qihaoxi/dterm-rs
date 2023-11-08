@@ -17,13 +17,13 @@ use clap::builder::styling::Reset;
 use clap::{Args, Parser, Subcommand};
 use log::LevelFilter;
 use log::{debug, error, info, trace, warn};
-use log4rs;
+// use log4rs;
 use log4rs::append::console::ConsoleAppender;
 use std::path::PathBuf;
 use std::string::ToString;
 // use log4rs::append::file::FileAppender;
 use colored::*;
-use dirs;
+// use dirs;
 use log4rs::append::rolling_file::policy;
 use log4rs::append::rolling_file::RollingFileAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
@@ -83,7 +83,7 @@ fn init_log(dir: PathBuf, level: LevelFilter) {
     let log_name_str = match log_name.to_str() {
         Some(s) => s,
         None => {
-            println!("{}", format!("log_name: none").italic().bold().bright_red());
+            println!("{}", "log_name: none".italic().bold().bright_red());
             ""
         }
     };
@@ -167,7 +167,7 @@ fn parse_args(cli: &mut Cli, cfg: &mut dterm_config) {
     }
 
     let d = &cli.debug;
-    cfg.set_debug(d.clone());
+    cfg.set_debug(d.to_owned());
     println!(
         "{}",
         format!("debug: {}", d).italic().bold().bright_yellow()
@@ -179,7 +179,7 @@ fn parse_args(cli: &mut Cli, cfg: &mut dterm_config) {
             h
         }
         None => {
-            println!("{}", format!("host: none").italic().bold().bright_red());
+            println!("{}", "host: none".italic().bold().bright_red());
             ""
         }
     };
@@ -190,7 +190,7 @@ fn parse_args(cli: &mut Cli, cfg: &mut dterm_config) {
             p
         }
         None => {
-            println!("{}", format!("port: none").italic().bold().bright_red());
+            println!("{}", "port: none".italic().bold().bright_red());
             ""
         }
     };
@@ -207,7 +207,7 @@ fn parse_args(cli: &mut Cli, cfg: &mut dterm_config) {
         None => {
             println!(
                 "{}",
-                format!("device_id: none").italic().bold().bright_red()
+                "device_id: none".italic().bold().bright_red()
             );
             ""
         }
@@ -223,7 +223,7 @@ fn parse_args(cli: &mut Cli, cfg: &mut dterm_config) {
             true
         }
         None => {
-            println!("{}", format!("daemon: none").italic().bold().bright_red());
+            println!("{}", "daemon: none".italic().bold().bright_red());
             false
         }
     };
@@ -307,20 +307,20 @@ async fn dterm_loop(cfg: &config::Config) -> Result<(), Box<dyn std::error::Erro
     tokio::spawn(async move {
         loop {
             select! {
-	            tty_manager_result = tty_manager.run() => {
+                tty_manager_result = tty_manager.run() => {
                     match tty_manager_result {
-	                    Ok(_) => {
-	                        info!("tty_manager run success");
-	                    }
-	                    Err(e) => {
-	                        error!("tty_manager run failed, {:?}", e);
-	                    }
+                        Ok(_) => {
+                            info!("tty_manager run success");
+                        }
+                        Err(e) => {
+                            error!("tty_manager run failed, {:?}", e);
+                        }
                     }
                 }
-	            tty_watcher_result = tty_watcher.wait() => {
-					info!("tty_watcher wait");
-					break;
-				}
+                tty_watcher_result = tty_watcher.wait() => {
+                    info!("tty_watcher wait");
+                    break;
+                }
 
             }
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
