@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+#[derive(Debug, Clone)]
 pub struct Config {
     // debug mode
     debug: bool,
@@ -18,6 +19,9 @@ pub struct Config {
 
     // daemon mode
     daemon: bool,
+
+    //description: String,
+    description: String,
 }
 
 impl Config {
@@ -29,6 +33,7 @@ impl Config {
             server: "".to_string(),
             device_id: "".to_string(),
             daemon: false,
+            description: "".to_string(),
         }
     }
 
@@ -55,6 +60,10 @@ impl Config {
         self.daemon = daemon;
     }
 
+    pub fn set_description(&mut self, description: String) {
+        self.description = description;
+    }
+
     pub fn get_debug(&self) -> bool {
         self.debug.clone()
     }
@@ -77,5 +86,9 @@ impl Config {
 
     pub fn get_daemon(&self) -> bool {
         self.daemon.clone()
+    }
+
+    pub fn get_description(&self) -> String {
+        self.description.clone()
     }
 }
