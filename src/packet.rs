@@ -16,6 +16,24 @@ pub enum PacketType {
     PktTypeMax(u8),
 }
 
+impl std::convert::From<PacketType> for u8 {
+    fn from(packet_type: PacketType) -> Self {
+        match packet_type {
+            PacketType::Register(_) => 0,
+            PacketType::Login(_) => 1,
+            PacketType::Logout(_) => 2,
+            PacketType::Termdata(_) => 3,
+            PacketType::Winsize(_) => 4,
+            PacketType::Cmd(_) => 5,
+            PacketType::Heartbeat(_) => 6,
+            PacketType::File(_) => 7,
+            PacketType::Http(_) => 8,
+            PacketType::Ack(_) => 9,
+            PacketType::PktTypeMax(_) => 9,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Packet {
     pub packet_type: u8,
@@ -38,6 +56,14 @@ impl Packet {
             packet_type,
             packet_length,
             packet_data,
+        }
+    }
+
+    pub fn new_register_packet()-> Self {
+        Self {
+            packet_type: PacketType::Register(0).into(),
+            packet_length: 0,
+            packet_data: Bytes::new(),
         }
     }
 }
