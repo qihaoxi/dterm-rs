@@ -1,6 +1,6 @@
 #![cfg_attr(
-    debug_assertions,
-    allow(dead_code, unused_imports, unused_variables, unused_mut)
+debug_assertions,
+allow(dead_code, unused_imports, unused_variables, unused_mut)
 )]
 // #![cfg_attr(not(debug_assertions), deny(dead_code, unused_imports, unused_variables, unused_mut))]
 // #![allow(unused_must_use)]
@@ -107,17 +107,14 @@ fn init_log(dir: PathBuf, level: LevelFilter) {
 
     let policy = policy::compound::CompoundPolicy::new(Box::new(trigger), Box::new(roller));
 
+    let patten = "{h([{d(%Y-%m-%d %H:%M:%S)} {l} {f}:{L}])} - {m} {n}";
     let file = RollingFileAppender::builder()
-        .encoder(Box::new(PatternEncoder::new(
-            "{h([{d(%Y-%m-%d %H:%M:%S)} {l} {t} {f}:{L}])} - {m} {n}",
-        )))
+        .encoder(Box::new(PatternEncoder::new(patten)))
         .build(log_name, Box::new(policy))
         .unwrap();
 
     let stdout = ConsoleAppender::builder()
-        .encoder(Box::new(PatternEncoder::new(
-            "{h([{d(%Y-%m-%d %H:%M:%S)} {l} {f}:{L}])} - {m} {n}",
-        )))
+        .encoder(Box::new(PatternEncoder::new(patten)))
         .build();
 
     let config = Config::builder()
