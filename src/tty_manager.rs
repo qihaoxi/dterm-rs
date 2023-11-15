@@ -69,26 +69,49 @@ impl TtyManager {
             }
         };
 
-        // write register packet
-        stream.write_u8(0).await?;
-        stream.write_u16(34).await?;
-
+        // create connection instance
         let mut connection = Connection::new(stream);
-        loop {
-            match connection.read_packet().await {
-                Ok(Some(packet)) => {
-                    info!("read packet success, {:?}", packet);
+        // write register packet
+        let p = packet::Packet::new_register_packet(String::from("172-30.97.139"), String::from("172-30.97.139"));
+        match connection.write_packet(&p).await {
+            Ok(_) => {
+                info!("write packet success");
+            }
+            Err(e) => {
+                info!("write packet failed, {:?}", e);
+                return Err(Box::try_from(e).unwrap());
+            }
+        }
+
+        // read loop
+        let r=tokio::spawn(async move {
+            loop {
+                match connection.read_packet().await {
+                    Ok(Some(packet)) => {
+                        info!("read packet success, {:?}", packet);
+                    }
+                    Ok(None) => {
+                        info!("read packet failed, None");
+                    }
+                    Err(e) => {
+                        info!("read packet failed, {:?}", e);
+                        break;
+                    }
                 }
-                Ok(None) => {
-                    info!("read packet failed, None");
-                }
-                Err(e) => {
-                    info!("read packet failed, {:?}", e);
-                    break;
-                }
+            }
+        });
+
+        //write loop
+        match tokio::join!(r) {
+            (Ok(_),) => {
+                info!("join success");
+            }
+            (Err(e),) => {
+                info!("join failed, {:?}", e);
             }
         }
 
         Ok(())
+
     }
 }
