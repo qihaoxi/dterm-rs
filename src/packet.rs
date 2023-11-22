@@ -119,7 +119,10 @@ impl Packet {
         })
     }
 
-    pub fn to_buffer(&mut self, buffer: &mut Cursor<&mut [u8]>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn to_buffer(
+        &mut self,
+        buffer: &mut Cursor<&mut [u8]>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         buffer.write(self.packet_type.to_be_bytes().as_ref())?;
         buffer.write(self.packet_length.to_be_bytes().as_ref())?;
         buffer.write(self.packet_data.as_ref())?;

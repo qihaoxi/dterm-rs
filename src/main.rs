@@ -1,6 +1,6 @@
 #![cfg_attr(
-debug_assertions,
-allow(dead_code, unused_imports, unused_variables, unused_mut)
+    debug_assertions,
+    allow(dead_code, unused_imports, unused_variables, unused_mut)
 )]
 // #![cfg_attr(not(debug_assertions), deny(dead_code, unused_imports, unused_variables, unused_mut))]
 // #![allow(unused_must_use)]

@@ -72,7 +72,10 @@ impl TtyManager {
         // create connection instance
         let mut connection = Connection::new(stream);
         // write register packet
-        let p = packet::Packet::new_register_packet(String::from("172-30.97.139"), String::from("172-30.97.139"));
+        let p = packet::Packet::new_register_packet(
+            String::from("172-30.97.139"),
+            String::from("172-30.97.139"),
+        );
         match connection.write_packet(&p).await {
             Ok(_) => {
                 info!("write packet success");
@@ -84,7 +87,7 @@ impl TtyManager {
         }
 
         // read loop
-        let r=tokio::spawn(async move {
+        let r = tokio::spawn(async move {
             loop {
                 match connection.read_packet().await {
                     Ok(Some(packet)) => {
@@ -112,6 +115,5 @@ impl TtyManager {
         }
 
         Ok(())
-
     }
 }
