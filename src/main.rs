@@ -321,10 +321,10 @@ async fn dterm_loop(cfg: &config::Config) -> Result<(), Box<dyn std::error::Erro
                 tty_manager_result = tty_manager.run() => {
                     match tty_manager_result {
                         Ok(_) => {
-                            info!("tty_manager run success");
+                            info!("TtyManager run success");
                         }
                         Err(e) => {
-                            error!("tty_manager run failed, {:?}", e);
+                            error!("TtyManager run failed, {:?}", e);
                         }
                     }
                 }
