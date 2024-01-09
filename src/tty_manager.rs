@@ -5,6 +5,7 @@ use log4rs;
 use std::future::Future;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
+use crate::cancel::{CancelCaller, CancelWatcher};
 
 struct Tty {
     sid: String,
@@ -26,22 +27,19 @@ pub(crate) struct TtyManager {
     lock: tokio::sync::Mutex<()>,
     status: TtyStatus,
     // sock:  tokio::net::TcpSocket,
+    cancel_watcher: CancelWatcher,// cancel watcher  for exit,
 }
 
 impl TtyManager {
-    pub(crate) fn new(addr: String) -> Self {
+    pub(crate) fn new(addr: String, cancel_watcher: CancelWatcher) -> Self {
         Self {
             tty_count: 0,
             tty_map: std::collections::HashMap::new(),
             lock: tokio::sync::Mutex::new(()),
             status: TtyStatus::Disconnected,
             server_addr: addr,
+            cancel_watcher,
         }
-    }
-
-    async fn connect(addr: String) -> Result<tokio::net::TcpStream, Box<dyn std::error::Error>> {
-        let mut stream = TcpStream::connect(addr).await?;
-        Ok(stream)
     }
 
     async fn destroy(&mut self, stream: &mut tokio::net::TcpStream) {
@@ -55,24 +53,20 @@ impl TtyManager {
         }
     }
 
+    // connect to server;register to server;read response from server; read loop & write loop
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         info!("start connect: {}", self.server_addr);
 
-        let mut stream = match Self::connect(self.server_addr.clone()).await {
-            Ok(stream) => {
+        let mut connection = Connection::new();
+        match connection.connect(self.server_addr.clone()).await {
+            Ok(_) => {
                 info!("connect success");
-                stream
             }
             Err(e) => {
                 info!("connect failed, {:?}", e);
-                return Err(e);
+                return Err(Box::try_from(e).unwrap());
             }
-        };
-
-        // create connection instance
-        // let (mut rd_stream, mut wr_stream) = stream.split();
-
-        let mut connection = Connection::new(stream);
+        }
 
         // write register packet
         let p = packet::Packet::new_register_packet(
@@ -88,6 +82,22 @@ impl TtyManager {
                 return Err(Box::try_from(e).unwrap());
             }
         }
+        info!("write register packet");
+
+        // read response packet
+        match connection.read_packet().await {
+            Ok(Some(packet)) => {
+                info!("read packet success, {:?}", packet);
+            }
+            Ok(None) => {
+                info!("read packet failed, None");
+            }
+            Err(e) => {
+                info!("read packet failed, {:?}", e);
+                return Err(Box::try_from(e).unwrap());
+            }
+        }
+        info!("read register response packet");
 
 
         // read loop

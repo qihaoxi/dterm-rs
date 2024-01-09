@@ -41,7 +41,6 @@ impl Connection {
 	pub async fn connect(&mut self, addr: String) -> Result<(), Box<dyn std::error::Error>> {
 		match TcpStream::connect(addr).await {
 			Ok(stream) => {
-				info!("connect success");
 				self.stream = Some(stream);
                 let  (rd_stream, wr_stream) = self.stream.take().unwrap().into_split();
                 self.wr_stream = Some(wr_stream);

@@ -1,6 +1,6 @@
 #![cfg_attr(
-    debug_assertions,
-    allow(dead_code, unused_imports, unused_variables, unused_mut)
+debug_assertions,
+allow(dead_code, unused_imports, unused_variables, unused_mut)
 )]
 // #![cfg_attr(not(debug_assertions), deny(dead_code, unused_imports, unused_variables, unused_mut))]
 // #![allow(unused_must_use)]
@@ -303,6 +303,7 @@ async fn handle_signal(
 async fn dterm_loop(cfg: &config::Config) -> Result<(), Box<dyn std::error::Error>> {
     let (mut cancel_caller, mut cancel_watcher) = cancel::new_cancel();
     let mut tty_manager_watcher = cancel_watcher.clone();
+    let mut connection_watcher = cancel_watcher.clone();
 
     tokio::spawn(async move {
         select! {
@@ -314,7 +315,7 @@ async fn dterm_loop(cfg: &config::Config) -> Result<(), Box<dyn std::error::Erro
         }
     });
 
-    let mut tty_manager = tty_manager::TtyManager::new(cfg.get_server());
+    let mut tty_manager = tty_manager::TtyManager::new(cfg.get_server(), connection_watcher);
     tokio::spawn(async move {
         loop {
             select! {
