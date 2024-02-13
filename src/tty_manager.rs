@@ -1,11 +1,25 @@
 use crate::connections::Connection;
 use crate::packet;
-use log::info;
+use log::{debug, info};
 use log4rs;
 use std::future::Future;
-use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
+use std::io;
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt},
+    net::{
+        tcp::{OwnedReadHalf, OwnedWriteHalf},
+        TcpListener, TcpStream,
+    },
+    sync::{mpsc, Mutex},
+};
+use std::sync::Arc;
+use tokio::io::{AsyncReadExt, BufReader, BufWriter};
+use tokio::select;
+use tokio::sync::mpsc::{Receiver, Sender};
+use tracing::error;
 use crate::cancel::{CancelCaller, CancelWatcher};
+use crate::myerror::MyError;
+use crate::packet::Packet;
 
 struct Tty {
     sid: String,
@@ -26,18 +40,23 @@ pub(crate) struct TtyManager {
     tty_map: std::collections::HashMap<String, Tty>,
     lock: tokio::sync::Mutex<()>,
     status: TtyStatus,
-    // sock:  tokio::net::TcpSocket,
+
+    // receive packet channel for network
+    //  recv_chan: tokio::sync::mpsc::Receiver<()>,
+    // send packet channel for network
+    // send_chan: tokio::sync::mpsc::Sender<()>,
+
     cancel_watcher: CancelWatcher,// cancel watcher  for exit,
 }
 
 impl TtyManager {
     pub(crate) fn new(addr: String, cancel_watcher: CancelWatcher) -> Self {
         Self {
+            server_addr: addr,
             tty_count: 0,
             tty_map: std::collections::HashMap::new(),
             lock: tokio::sync::Mutex::new(()),
             status: TtyStatus::Disconnected,
-            server_addr: addr,
             cancel_watcher,
         }
     }
@@ -53,94 +72,288 @@ impl TtyManager {
         }
     }
 
-    // connect to server;register to server;read response from server; read loop & write loop
-    pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
-        info!("start connect: {}", self.server_addr);
 
-        let mut connection = Connection::new();
-        match connection.connect(self.server_addr.clone()).await {
-            Ok(_) => {
+    // connect to server;register to server;read response from server; read loop & write loop
+    // pub async fn run(&mut self) -> Result<(), ()> {
+    //     info!("start connect: {}", self.server_addr);
+    //     let connection = Arc::new(Mutex::new(Connection::new()));
+    //     match connection.lock().await.connect(self.server_addr.clone()).await {
+    //         Ok(_) => {
+    //             info!("connect success");
+    //         }
+    //         Err(e) => {
+    //             info!("connect failed, {:?}", e);
+    //             // convert e to MyError
+    //             //impl send for MyError
+    //             return Err(());
+    //         }
+    //     }
+    //
+    //     //write "dterm" to server
+    //     let mut s = connection.lock().await;
+    //     match s.get_wr_stream().write_all(b"dterm").await {
+    //         Ok(_) => {
+    //             info!("write dterm success");
+    //         }
+    //         Err(e) => {
+    //             info!("write dterm failed, {:?}", e);
+    //             return Err(());
+    //         }
+    //     }
+    //
+    //     // send login packet
+    //     let login_packet = packet::Packet::new_login_packet();
+    //     match connection.lock().await.write_packet(&login_packet).await {
+    //         Ok(_) => {
+    //             info!("write login packet success");
+    //         }
+    //         Err(e) => {
+    //             info!("write login packet failed, {:?}", e);
+    //             return Err(());
+    //         }
+    //     }
+    //
+    //
+    //     // channel for network read
+    //     let (nr_tx, mut nr_rx) = tokio::sync::mpsc::channel(1024);
+    //     // channel for network write
+    //     let (nw_tx, mut nw_rx) = tokio::sync::mpsc::channel(1024);
+    //
+    //
+    //     // socket read loop, read from server, write to channel
+    //     let connection_read = Arc::clone(&connection);
+    //     let mut r = async {
+    //         loop {
+    //             let mut buf = [0u8; 8192];
+    //             match connection_read.lock().await.read_packet().await {
+    //                 Ok(packet) => {
+    //                     // send to channel, dispatch thread to process
+    //                     nr_tx.send(packet).await.unwrap();
+    //                 }
+    //                 Err(e) => {
+    //                     info!("read packet failed, {:?}", e);
+    //                     break;
+    //                 }
+    //             }
+    //         }
+    //     };
+    //
+    //     // dispatch thread to process packet
+    //     let mut d = async {
+    //         loop {
+    //             match nr_rx.recv().await {
+    //                 Some(packet) => {
+    //                     info!("recv msg from channel");
+    //                     // process packet
+    //                 }
+    //                 None => {
+    //                     info!("channel closed, exit");
+    //                     break;
+    //                 }
+    //             }
+    //         }
+    //     };
+    //
+    //
+    //     // read from channel, write to server
+    //     // let mut w = async {
+    //     //     loop {
+    //     //         // read from channel
+    //     //         match nw_rx.recv().await {
+    //     //             Some(packet) => {
+    //     //                 info!("recv msg from channel");
+    //     //                 // write to server
+    //     //                 match connection.write_packet(&packet).await {
+    //     //                     Ok(_) => {
+    //     //                         info!("write packet success");
+    //     //                     }
+    //     //                     Err(e) => {
+    //     //                         info!("write packet failed, {:?}", e);
+    //     //                         break;
+    //     //                     }
+    //     //                 }
+    //     //             }
+    //     //             None => {
+    //     //                 info!("channel closed, exit");
+    //     //                 break;
+    //     //             }
+    //     //         }
+    //     //     }
+    //     // };
+    //
+    //     let connection_write = Arc::clone(&connection);
+    //     let mut w = async {
+    //         loop {
+    //             // read from channel
+    //             match nw_rx.recv().await {
+    //                 Some(packet) => {
+    //                     info!("recv msg from channel");
+    //                     // write to server
+    //                     match connection_write.lock().await.write_packet(&packet).await {
+    //                         Ok(_) => {
+    //                             info!("write packet success");
+    //                         }
+    //                         Err(e) => {
+    //                             info!("write packet failed, {:?}", e);
+    //                             break;
+    //                         }
+    //                     }
+    //                 }
+    //                 None => {
+    //                     info!("channel closed, exit");
+    //                     break;
+    //                 }
+    //             }
+    //         }
+    //     };
+    //
+    //
+    //     // wait for exit loop
+    //     let mut e = async {
+    //         self.cancel_watcher.wait().await;
+    //         info!("cancel_watcher cancelled");
+    //     };
+    //
+    //     // wait for all tasks to finish
+    //     select! {
+    //         _ = r => {
+    //             info!("r finished");
+    //         }
+    //         _ = d => {
+    //             info!("d finished");
+    //         }
+    //         _ = w => {
+    //             info!("w finished");
+    //         }
+    //         _ = e => {
+    //             info!("e finished");
+    //         }
+    //     }
+    //
+    //     Ok(())
+    // }
+
+    pub async fn main_loop(&mut self) -> Result<(), std::io::Error> {
+        // connect to server;register to server;read response from server; read loop & write loop
+        info!("start connect: {}", self.server_addr);
+        let mut stream = match TcpStream::connect(self.server_addr.clone()).await {
+            Ok(s) => {
                 info!("connect success");
+                s
             }
             Err(e) => {
                 info!("connect failed, {:?}", e);
-                return Err(Box::try_from(e).unwrap());
+                return Err(e);
+            }
+        };
+
+
+        //write "dterm" to server
+        match stream.write_all(b"dterm:").await {
+            Ok(_) => {
+                info!("write dterm success");
+            }
+            Err(e) => {
+                info!("write dterm failed, {:?}", e);
+                return Err(e);
             }
         }
+
+        let (net_reader, net_writer) = stream.into_split();
+        let mut reader = tokio::io::BufReader::new(net_reader);
+        let mut writer = tokio::io::BufWriter::new(net_writer);
+
 
         // write register packet
-        let p = packet::Packet::new_register_packet(
-            String::from("172-30-97-139"),
-            String::from("172-30-97-139"),
-        );
-        match connection.write_packet(&p).await {
+        let register_packet = packet::Packet::new_register_packet("127-0-0-1".to_string(), "127".to_string());
+        match TtyManager::write_packet(&mut writer, &register_packet).await {
             Ok(_) => {
-                info!("write packet success");
+                info!("write register packet success");
             }
             Err(e) => {
-                info!("write packet failed, {:?}", e);
-                return Err(Box::try_from(e).unwrap());
+                info!("write register packet failed, {:?}", e);
+                return Err(e);
             }
         }
-        info!("write register packet");
-
-        // read response packet
-        match connection.read_packet().await {
-            Ok(Some(packet)) => {
-                info!("read packet success, {:?}", packet);
-            }
-            Ok(None) => {
-                info!("read packet failed, None");
-            }
-            Err(e) => {
-                info!("read packet failed, {:?}", e);
-                return Err(Box::try_from(e).unwrap());
-            }
-        }
-        info!("read register response packet");
 
 
-        // read loop
-        let r = tokio::spawn(async move {
-            loop {
-                match connection.read_packet().await {
-                    Ok(Some(packet)) => {
-                        info!("read packet success, {:?}", packet);
-                    }
-                    Ok(None) => {
-                        info!("read packet failed, None");
-                    }
-                    Err(e) => {
-                        info!("read packet failed, {:?}", e);
-                        break;
-                    }
-                }
-            }
+        // create channel for network read, dispatch thread to process packet
+        let (nr_tx, nr_rx) = mpsc::channel::<Packet>(1024);
+        let mut read_task = tokio::spawn(async move {
+            TtyManager::read_net(reader, nr_tx).await;
         });
 
-        // let w = tokio::spawn(async move {
-        //     loop {
-        //         match connection.write_packet(&p).await {
-        //             Ok(_) => {
-        //                 info!("write packet success");
-        //             }
-        //             Err(e) => {
-        //                 info!("write packet failed, {:?}", e);
-        //                 break;
-        //             }
-        //         }
-        //     }
-        // });
+        // create channel for network write, read from channel, write to server
+        let (nw_tx, nw_rx) = mpsc::channel::<Packet>(1024);
+        let write_task = tokio::spawn(async move {
+            TtyManager::write_net(writer, nw_rx).await;
+        });
 
-        //write loop
-        match tokio::join!(r) {
-            (Ok(_), ) => {
-                info!("tty_manager exit success");
-            }
-            (Err(e), ) => {
-                info!("tty_manager exit failed, err: {:?}", e);
+        // wait for exit loop
+        let mut cancel_watcher_clone = self.cancel_watcher.clone(); // assuming `self.cancel_watcher` is cloneable
+        let exit_task = tokio::spawn(async move {
+            cancel_watcher_clone.wait().await;
+            info!("cancel_watcher cancelled");
+        });
+
+        // wait for all tasks to finish
+        let _ = tokio::try_join!(read_task, write_task, exit_task);
+        Ok(())
+    }
+
+    async fn read_net(mut reader: BufReader<OwnedReadHalf>, nr_tx: Sender<Packet>) {
+        loop {
+            let mut header = [0u8; 3];
+            let mut buf = [0u8; 8192];
+            match reader.read_exact(&mut buf).await {
+                Ok(n) => {
+                    //peek 3 bytes, read type(byte) + length(2 bytes)
+                    reader.read_exact(&mut header).await.unwrap();
+                    let packet_type = header[0];
+                    let packet_length = u16::from_be_bytes([header[1], header[2]]);
+                    let mut packet_data = bytes::BytesMut::with_capacity(packet_length as usize);
+                    packet_data.resize(packet_length as usize, 0);
+                    reader.read_exact(&mut packet_data).await.unwrap();
+                    info!("read packet success, type:{}, length:{}", packet_type, packet_length);
+
+                    let packet = packet::Packet::new(packet_type, packet_length, packet_data.freeze());
+                    // send to channel, dispatch thread to process
+                    nr_tx.send(packet).await.unwrap();
+                }
+                Err(e) => {
+                    info!("read packet failed, {:?}", e);
+                    break;
+                }
             }
         }
+    }
+
+    async fn write_net(mut writer: BufWriter<OwnedWriteHalf>, mut nw_rx: Receiver<Packet>) {
+        loop {
+            // read from channel
+            match nw_rx.recv().await {
+                Some(packet) => {
+                    info!("recv msg from channel");
+                    match TtyManager::write_packet(&mut writer, &packet).await {
+                        Ok(_) => {
+                            info!("write packet success");
+                        }
+                        Err(e) => {
+                            info!("write packet failed, {:?}", e);
+                            break;
+                        }
+                    }
+                }
+                None => {
+                    info!("channel closed, exit");
+                    break;
+                }
+            }
+        }
+    }
+    pub async fn write_packet(stream: &mut BufWriter<OwnedWriteHalf>, packet: &Packet) -> io::Result<()> {
+        let data=packet.to_bytes();
+        stream.write_all(&data).await?;
         Ok(())
     }
 }

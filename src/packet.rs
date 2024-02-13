@@ -45,6 +45,16 @@ pub struct Packet {
     pub packet_data: bytes::Bytes,
 }
 
+impl Packet {
+    pub(crate) fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = BytesMut::with_capacity(3 + self.packet_data.len());
+        buf.put_u8(self.packet_type);
+        buf.put_u16(self.packet_length);
+        buf.put(self.packet_data.clone());
+        buf.freeze().to_vec()
+    }
+}
+
 #[derive(Debug)]
 pub enum Error {
     /// Not enough data is available to parse a message
@@ -65,27 +75,9 @@ impl Packet {
 
     /// type/len(2 bytes)/proto/device_id/0/desc/0/token/0
     pub fn new_register_packet(device_id: String, desc: String) -> Self {
-        // let mut buf = ByteBuffer::new();
-        // buf.write_u8(Register as u8);
-        // let len = 4 + device_id.len() + desc.len();
-        // buf.write_u16(len as u16);
-        // buf.write_u8(3); //proto version:3
-        // buf.write_string(&device_id); //device_id end
-        // buf.write_u8(b'0'); //device_id end
-        // buf.write_string(&desc); //desc end
-        // buf.write_u8(b'0'); //device_id end
-        // buf.write_u8(b'0'); //device_id end
-        //
-        // Self {
-        //     packet_type: PacketType::Register(0).into(),
-        //     packet_length: len as u16,
-        //     packet_data: Bytes::from(buf.into_vec()),
-        // }
-
         let len = 4 + device_id.len() + desc.len();
         let mut buf = BytesMut::new();
-        // buf.put_u8(PacketType::Register(0).into());
-        // buf.put_u16(len as u16);
+
         buf.put_u8(3); //proto version:3
         buf.put_slice(device_id.as_bytes()); //device_id
         buf.put_u8(b'0'); //device_id end

@@ -21,6 +21,7 @@ use log::{debug, error, info, trace, warn};
 use log4rs::append::console::ConsoleAppender;
 use std::path::PathBuf;
 use std::string::ToString;
+use std::sync::Arc;
 
 use local_ip_address::local_ip;
 use log4rs::append::rolling_file::policy;
@@ -36,6 +37,7 @@ use tokio_util::sync::CancellationToken;
 use tokio::signal::unix::{signal, SignalKind};
 #[cfg(target_os = "windows")]
 use tokio::signal::windows;
+use tokio::sync::Mutex;
 
 mod cancel;
 mod config;
@@ -43,6 +45,7 @@ mod connections;
 mod daemon;
 mod packet;
 mod tty_manager;
+mod myerror;
 
 use config::Config as dterm_config;
 
@@ -63,7 +66,7 @@ struct Cli {
     host: Option<String>,
 
     /// host port
-    #[arg(short, long, default_value = "8331")]
+    #[arg(short, long, default_value = "8333")]
     port: Option<String>,
 
     /// device id
@@ -315,29 +318,54 @@ async fn dterm_loop(cfg: &config::Config) -> Result<(), Box<dyn std::error::Erro
         }
     });
 
-    let mut tty_manager = tty_manager::TtyManager::new(cfg.get_server(), connection_watcher);
-    tokio::spawn(async move {
-        loop {
-            select! {
-                tty_manager_result = tty_manager.run() => {
-                    match tty_manager_result {
-                        Ok(_) => {
-                            info!("TtyManager run success");
-                        }
-                        Err(e) => {
-                            error!("TtyManager run failed, {:?}", e);
-                        }
-                    }
-                }
-                tty_watcher_result = tty_manager_watcher.wait() => {
-                    info!("tty_watcher wait");
-                    break;
-                }
+    // let mut tty_manager = tty_manager::TtyManager::new(cfg.get_server(), connection_watcher);
+    // let tty_manager = Arc::new(Mutex::new(tty_manager));
+    // tokio::spawn(async move {
+    //     let mut tty_manager_lock = tty_manager.lock().await;
+    //     loop {
+    //         select! {
+    //             tty_manager_result = tty_manager_lock.run() => {
+    //                 match tty_manager_result {
+    //                     Ok(_) => {
+    //                         info!("TtyManager run success");
+    //                     }
+    //                     Err(e) => {
+    //                         error!("TtyManager run failed, {:?}", e);
+    //                     }
+    //                 }
+    //             }
+    //             tty_watcher_result = tty_manager_watcher.wait() => {
+    //                 info!("tty_watcher wait");
+    //                 break;
+    //             }
+    //
+    //         }
+    //         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    //     }
+    // });
 
-            }
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    let mut tty_manager = tty_manager::TtyManager::new(cfg.get_server(), connection_watcher);
+    // let tty_manager = Arc::new(Mutex::new(tty_manager));
+    // let mut tty_manager_lock = tty_manager.lock().await;
+    loop {
+        select! {
+             tty_manager_result = tty_manager.main_loop() => {
+                 match tty_manager_result {
+                     Ok(_) => {
+                         info!("TtyManager run success");
+                     }
+                     Err(e) => {
+                         error!("TtyManager run failed, {:?}", e);
+                     }
+                 }
+             }
+             tty_watcher_result = tty_manager_watcher.wait() => {
+                 info!("tty_watcher wait");
+                 break;
+             }
         }
-    });
+    };
+
 
     let _ = handle_signal(&mut cancel_caller).await;
     info!("main process exit");
@@ -400,7 +428,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
     };
-
     dterm_loop(&cfg).await?;
     Ok(())
 }

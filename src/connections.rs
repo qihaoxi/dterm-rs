@@ -9,6 +9,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, BufWriter,
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::OwnedMappedMutexGuard;
+use tracing::debug;
 // use tokio_util::bytes::Buf;
 
 use crate::packet;
@@ -65,6 +66,13 @@ impl Connection {
 		}
 	}
 
+	// register packet:
+	// 1 byte packet type
+	// 2 bytes packet length
+	// 1 byte proto version
+	// 4 bytes device id + '\0'
+	// 4 bytes device name + '\0' optional
+	// 4 bytes token + '\0' optional
     pub async fn register(&mut self, device_id: String, device_name: String) -> Result<(), Box<dyn std::error::Error>> {
         let p = packet::Packet::new_register_packet(device_id, device_name);
         match self.write_packet(&p).await {
@@ -79,6 +87,10 @@ impl Connection {
         }
     }
 
+	pub fn get_wr_stream(&mut self) -> &mut OwnedWriteHalf {
+		self.wr_stream.as_mut().unwrap()
+	}
+
     pub async fn write_packet(&mut self, packet: &Packet) -> io::Result<()> {
         self.wr_stream.as_mut().unwrap().write_u8(packet.packet_type.clone()).await?;
         self.wr_stream.as_mut().unwrap().write_u16(packet.packet_length.clone()).await?;
@@ -88,22 +100,52 @@ impl Connection {
     }
 
     pub async fn read_packet(&mut self) -> Result<Option<Packet>, Box<dyn std::error::Error>> {
-        loop {
-            if let Some(packet) = self.parse()? {
-                info!("read packet success, {:?}", packet);
-                return Ok(Some(packet));
-            }
+        // loop {
+        //     if let Some(packet) = self.parse()? {
+        //         info!("read packet success, {:?}", packet);
+        //         return Ok(Some(packet));
+        //     }
+		//
+        //     if 0 == self.rd_stream.as_mut().unwrap().read_buf(&mut self.buffer).await? {
+        //         if self.buffer.is_empty() {
+		// 			// no data to read, continue to next loop
+		// 			debug!("read packet failed, None");
+        //             continue;
+        //         } else {
+        //             info!("read packet failed, connection reset by peer");
+        //             return Err("connection reset by peer".into());
+        //         }
+        //     }
+        // }
+		loop{
+			// wait to read 3 bytes from stream, type(1 byte) + length(2 bytes)
+			let mut buf = [0u8; 3];
+			match self.rd_stream.as_mut().unwrap().read_exact(&mut buf).await {
+				Ok(_) => {
+					let packet_type = buf[0];
+					let packet_length = u16::from_be_bytes([buf[1], buf[2]]);
+					let mut packet_data = BytesMut::with_capacity(packet_length as usize);
+					packet_data.resize(packet_length as usize, 0);
 
-            if 0 == self.rd_stream.as_mut().unwrap().read_buf(&mut self.buffer).await? {
-                if self.buffer.is_empty() {
-                    info!("read packet failed, None");
-                    return Ok(None);
-                } else {
-                    info!("read packet failed, connection reset by peer");
-                    return Err("connection reset by peer".into());
-                }
-            }
-        }
+					// wait to read packet_length bytes from stream
+					match self.rd_stream.as_mut().unwrap().read_exact(&mut packet_data).await {
+						Ok(_) => {
+							let packet = packet::Packet::new(packet_type, packet_length, packet_data.freeze());
+							info!("read packet success, {:?}", packet);
+							return Ok(Some(packet));
+						}
+						Err(e) => {
+							info!("read packet failed, {:?}", e);
+							return Err(Box::try_from(e).unwrap());
+						}
+					}
+				}
+				Err(e) => {
+					info!("read packet failed, {:?}", e);
+					return Err(Box::try_from(e).unwrap());
+				}
+			}
+		}
     }
 
 
