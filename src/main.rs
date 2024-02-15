@@ -358,6 +358,7 @@ async fn dterm_loop(cfg: &config::Config) -> Result<(), Box<dyn std::error::Erro
                          error!("TtyManager run failed, {:?}", e);
                      }
                  }
+                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
              }
              tty_watcher_result = tty_manager_watcher.wait() => {
                  info!("tty_watcher wait");

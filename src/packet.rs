@@ -7,34 +7,22 @@ use crate::packet::PacketType::Register;
 
 #[derive(Clone, Debug)]
 pub enum PacketType {
-    Register(u8),
-    Login(u8),
-    Logout(u8),
-    Termdata(u8),
-    Winsize(u8),
-    Cmd(u8),
-    Heartbeat(u8),
-    File(u8),
-    Http(u8),
-    Ack(u8),
-    PktTypeMax(u8),
+    Register = 0,
+    Login = 1,
+    Logout = 2,
+    Termdata = 3,
+    Winsize = 4,
+    Cmd = 5,
+    Heartbeat = 6,
+    File = 7,
+    Http = 8,
+    Ack = 9,
+    // PktTypeMax=9,
 }
 
-impl std::convert::From<PacketType> for u8 {
-    fn from(packet_type: PacketType) -> Self {
-        match packet_type {
-            PacketType::Register(_) => 0,
-            PacketType::Login(_) => 1,
-            PacketType::Logout(_) => 2,
-            PacketType::Termdata(_) => 3,
-            PacketType::Winsize(_) => 4,
-            PacketType::Cmd(_) => 5,
-            PacketType::Heartbeat(_) => 6,
-            PacketType::File(_) => 7,
-            PacketType::Http(_) => 8,
-            PacketType::Ack(_) => 9,
-            PacketType::PktTypeMax(_) => 9,
-        }
+impl From<PacketType> for u8 {
+    fn from(packet_type: PacketType) -> u8 {
+        packet_type as u8
     }
 }
 
@@ -80,13 +68,13 @@ impl Packet {
 
         buf.put_u8(3); //proto version:3
         buf.put_slice(device_id.as_bytes()); //device_id
-        buf.put_u8(b'0'); //device_id end
+        buf.put_u8(0); //device_id end
         buf.put_slice(desc.as_bytes()); //desc
-        buf.put_u8(b'0'); //desc end
-        buf.put_u8(b'0'); //token end
+        buf.put_u8(0); //desc end
+        buf.put_u8(0); //token end
 
         Self {
-            packet_type: PacketType::Register(0).into(),
+            packet_type: PacketType::Register.into(),
             packet_length: len as u16,
             packet_data: buf.freeze(),
         }
@@ -94,7 +82,7 @@ impl Packet {
 
     pub fn new_login_packet() -> Self {
         Self {
-            packet_type: PacketType::Login(0).into(),
+            packet_type: PacketType::Login.into(),
             packet_length: 0,
             packet_data: Bytes::new(),
         }

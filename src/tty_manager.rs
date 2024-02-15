@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::connections::Connection;
 use crate::packet;
 use log::{debug, info};
@@ -34,10 +35,11 @@ enum TtyStatus {
     Connected,
 }
 
+
 pub(crate) struct TtyManager {
     pub server_addr: String,
-    tty_count: i32,
-    tty_map: std::collections::HashMap<String, Tty>,
+    // tty_count: i32,
+    // tty_map: std::collections::HashMap<String, Tty>,
     lock: tokio::sync::Mutex<()>,
     status: TtyStatus,
 
@@ -46,6 +48,10 @@ pub(crate) struct TtyManager {
     // send packet channel for network
     // send_chan: tokio::sync::mpsc::Sender<()>,
 
+    // inactive: i32,
+    // active: tokio::time::Duration,
+    // last_heartbeat: tokio::time::Duration, //timestamp
+
     cancel_watcher: CancelWatcher,// cancel watcher  for exit,
 }
 
@@ -53,8 +59,8 @@ impl TtyManager {
     pub(crate) fn new(addr: String, cancel_watcher: CancelWatcher) -> Self {
         Self {
             server_addr: addr,
-            tty_count: 0,
-            tty_map: std::collections::HashMap::new(),
+            // tty_count: 0,
+            // tty_map: std::collections::HashMap::new(),
             lock: tokio::sync::Mutex::new(()),
             status: TtyStatus::Disconnected,
             cancel_watcher,
@@ -246,10 +252,11 @@ impl TtyManager {
                 return Err(e);
             }
         };
+        let mut inactive = 0;
 
 
         //write "dterm" to server
-        match stream.write_all(b"dterm:").await {
+        /*match stream.write_all(b"dterm:").await {
             Ok(_) => {
                 info!("write dterm success");
             }
@@ -257,30 +264,128 @@ impl TtyManager {
                 info!("write dterm failed, {:?}", e);
                 return Err(e);
             }
-        }
+        }*/
 
         let (net_reader, net_writer) = stream.into_split();
         let mut reader = tokio::io::BufReader::new(net_reader);
         let mut writer = tokio::io::BufWriter::new(net_writer);
 
 
-        // write register packet
-        let register_packet = packet::Packet::new_register_packet("127-0-0-1".to_string(), "127".to_string());
-        match TtyManager::write_packet(&mut writer, &register_packet).await {
-            Ok(_) => {
-                info!("write register packet success");
-            }
-            Err(e) => {
-                info!("write register packet failed, {:?}", e);
-                return Err(e);
-            }
-        }
-
+        // match TtyManager::write_packet(&mut writer, &register_packet).await {
+        //     Ok(_) => {
+        //         info!("write register packet success");
+        //     }
+        //     Err(e) => {
+        //         info!("write register packet failed, {:?}", e);
+        //         return Err(e);
+        //     }
+        // }
 
         // create channel for network read, dispatch thread to process packet
-        let (nr_tx, nr_rx) = mpsc::channel::<Packet>(1024);
+        let (nr_tx, mut nr_rx) = mpsc::channel::<Packet>(1024);
         let mut read_task = tokio::spawn(async move {
-            TtyManager::read_net(reader, nr_tx).await;
+            // TtyManager::read_net(reader, nr_tx).await;
+            loop {
+                // read 3 bytes from stream, type(1 byte) + length(2 bytes)
+                let mut header = [0u8; 3];
+                match reader.read_exact(&mut header).await {
+                    Ok(n) => {
+                        let packet_type = header[0];
+                        let packet_length = u16::from_be_bytes([header[1], header[2]]);
+                        let mut packet_data = bytes::BytesMut::with_capacity(packet_length as usize);
+                        packet_data.resize(packet_length as usize, 0);
+
+                        // read packet_length bytes from stream
+                        reader.read_exact(&mut packet_data).await.unwrap();
+                        info!("read packet success, type:{}, length:{}, data: {}", packet_type, packet_length, String::from_utf8(packet_data.to_vec()).unwrap());
+
+                        let packet = packet::Packet::new(packet_type, packet_length, packet_data.freeze());
+                        // send to channel, dispatch thread to process
+                        nr_tx.send(packet).await.unwrap();
+                        inactive = 0;
+                    }
+                    Err(e) => {
+                        info!("read packet failed, {:?}", e);
+                        inactive = 0;
+                        break;
+                    }
+                }
+            }
+        });
+
+        let mut tty_map: HashMap<&str, i32> = std::collections::HashMap::new();
+
+        // create dispatch thread to process packet
+        let mut dispatch_task = tokio::spawn(async move {
+            loop {
+                match nr_rx.recv().await {
+                    Some(packet) => {
+                        info!("recv packet from channel");
+                        // process packet
+                        let packet_type = packet.packet_type as u8;
+                        match packet_type {
+                            0 => {
+                                //register
+                                info!("recv register packet");
+                                // first byte of packet_data is 0, indicating register success
+                                if packet.packet_data[0] == 0 {
+                                    info!("register success");
+                                } else {
+                                    info!("register failed");
+                                    return;
+                                }
+                            }
+                            1=> {
+                                //login
+                                info!("recv login packet");
+                                TtyManager::handle_packet(packet).await;
+                            }
+                            2 => {
+                                //logout
+                                info!("recv logout packet");
+                            }
+                            3 => {
+                                //termdata
+                                info!("recv termdata packet");
+                            }
+                            4 => {
+                                //winsize
+                                info!("recv winsize packet");
+                            }
+                            9 => {
+                                //ack
+                                info!("recv ack packet");
+                            }
+
+                            // 5 6 7 8 are ignored temporarily
+                            5 => {
+                                //cmd
+                                info!("recv cmd packet");
+                            }
+                            6 => {
+                                //heartbeat
+                                info!("recv heartbeat packet");
+                            }
+                            7 => {
+                                //file
+                                info!("recv file packet");
+                            }
+                            8 => {
+                                //http
+                                info!("recv http packet");
+                            }
+
+                            _ => {
+                                info!("recv unknown packet");
+                            }
+                        }
+                    }
+                    None => {
+                        info!("channel closed, exit");
+                        break;
+                    }
+                }
+            }
         });
 
         // create channel for network write, read from channel, write to server
@@ -296,6 +401,10 @@ impl TtyManager {
             info!("cancel_watcher cancelled");
         });
 
+        // write register packet
+        let register_packet = packet::Packet::new_register_packet("127-0-0-1".to_string(), "127".to_string());
+        nw_tx.send(register_packet).await.unwrap();
+
         // wait for all tasks to finish
         let _ = tokio::try_join!(read_task, write_task, exit_task);
         Ok(())
@@ -303,18 +412,18 @@ impl TtyManager {
 
     async fn read_net(mut reader: BufReader<OwnedReadHalf>, nr_tx: Sender<Packet>) {
         loop {
+            // read 3 bytes from stream, type(1 byte) + length(2 bytes)
             let mut header = [0u8; 3];
-            let mut buf = [0u8; 8192];
-            match reader.read_exact(&mut buf).await {
+            match reader.read_exact(&mut header).await {
                 Ok(n) => {
-                    //peek 3 bytes, read type(byte) + length(2 bytes)
-                    reader.read_exact(&mut header).await.unwrap();
                     let packet_type = header[0];
                     let packet_length = u16::from_be_bytes([header[1], header[2]]);
                     let mut packet_data = bytes::BytesMut::with_capacity(packet_length as usize);
                     packet_data.resize(packet_length as usize, 0);
+
+                    // read packet_length bytes from stream
                     reader.read_exact(&mut packet_data).await.unwrap();
-                    info!("read packet success, type:{}, length:{}", packet_type, packet_length);
+                    info!("read packet success, type:{}, length:{}, data: {}", packet_type, packet_length, String::from_utf8(packet_data.to_vec()).unwrap());
 
                     let packet = packet::Packet::new(packet_type, packet_length, packet_data.freeze());
                     // send to channel, dispatch thread to process
@@ -352,8 +461,58 @@ impl TtyManager {
         }
     }
     pub async fn write_packet(stream: &mut BufWriter<OwnedWriteHalf>, packet: &Packet) -> io::Result<()> {
-        let data=packet.to_bytes();
+        let data = packet.to_bytes();
         stream.write_all(&data).await?;
+        stream.flush().await?;
         Ok(())
+    }
+
+    async fn handle_packet(packet: Packet) {
+        let packet_type = packet.packet_type as u8;
+        match packet_type {
+            1=> {
+                //login
+                info!("recv login packet");
+
+            }
+            2 => {
+                //logout
+                info!("recv logout packet");
+            }
+            3 => {
+                //termdata
+                info!("recv termdata packet");
+            }
+            4 => {
+                //winsize
+                info!("recv winsize packet");
+            }
+            9 => {
+                //ack
+                info!("recv ack packet");
+            }
+
+            // 5 6 7 8 are ignored temporarily
+            5 => {
+                //cmd
+                info!("recv cmd packet");
+            }
+            6 => {
+                //heartbeat
+                info!("recv heartbeat packet");
+            }
+            7 => {
+                //file
+                info!("recv file packet");
+            }
+            8 => {
+                //http
+                info!("recv http packet");
+            }
+
+            _ => {
+                info!("recv unknown packet");
+            }
+        }
     }
 }
