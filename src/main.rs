@@ -1,6 +1,6 @@
 #![cfg_attr(
-	debug_assertions,
-	allow(dead_code, unused_imports, unused_variables, unused_mut)
+    debug_assertions,
+    allow(dead_code, unused_imports, unused_variables, unused_mut)
 )]
 // #![cfg_attr(not(debug_assertions), deny(dead_code, unused_imports, unused_variables, unused_mut))]
 // #![allow(unused_must_use)]
@@ -34,7 +34,7 @@ use single_instance::SingleInstance;
 use tokio::{select, signal};
 use tokio_util::sync::CancellationToken;
 // use tokio::signal;
-
+use rustc_version::{version, version_meta, Channel, Version};
 
 #[cfg(target_os = "linux")]
 use tokio::signal::unix::{signal, SignalKind};
@@ -53,6 +53,7 @@ mod myerror;
 mod trace;
 mod log;
 mod dterm;
+mod build;
 
 use config::Config as dterm_config;
 
@@ -60,113 +61,98 @@ use config::Config as dterm_config;
 #[command(author, version, about, long_about)]
 #[command(propagate_version = true)]
 struct Cli {
-	/// debug mode
-	#[arg(short, long)]
-	debug: bool,
+    /// debug mode
+    #[arg(short, long)]
+    debug: bool,
 
-	/// log level [error/warn/info/debug/trace]
-	#[arg(short, long = "log-level", default_value = "info")]
-	log_level: Option<String>,
+    /// log level [error/warn/info/debug/trace]
+    #[arg(short, long = "log-level", default_value = "info")]
+    log_level: Option<String>,
 
-	#[arg(short, long)]
-	trace: bool,
+    #[arg(short, long)]
+    trace: bool,
 
-	/// host address
-	#[arg(short = 's', long, default_value = "127.0.0.1")]
-	host: Option<String>,
+    /// host address
+    #[arg(short = 's', long, default_value = "127.0.0.1")]
+    host: Option<String>,
 
-	/// host port
-	#[arg(short, long, default_value = "8333")]
-	port: Option<String>,
+    /// host port
+    #[arg(short, long, default_value = "8333")]
+    port: Option<String>,
 
-	/// device id
-	#[arg(short = 'I', long = "device_id", default_value = "1111")]
-	device_id: Option<String>,
+    /// device id
+    #[arg(short = 'I', long = "device_id", default_value = "1111")]
+    device_id: Option<String>,
 
-	/// daemon mode
-	#[arg(short = 'D', long, default_value = "false")]
-	daemon: Option<bool>,
+    /// daemon mode
+    #[arg(short = 'D', long, default_value = "false")]
+    daemon: Option<bool>,
 
-	/// description
-	#[arg(long)]
-	description: Option<String>,
+    /// description
+    #[arg(long)]
+    description: Option<String>,
 }
 
 const APP_NAME: &str = "dterm";
 
 fn parse_args(cli: &mut Cli, cfg: &mut dterm_config) {
-	println!("{}", format!("{} arguments", APP_NAME).italic().bold().bright_yellow());
-	if cli.trace {
-		cfg.set_trace(cli.trace);
-	} else {
-		match &cli.log_level {
-			Some(s) => {
-				println!("{}", format!("log_level: {}", s).italic().bright_yellow());
-				let level = match s.to_lowercase().as_str() {
-					"error" => LevelFilter::Error,
-					"warn" => LevelFilter::Warn,
-					"info" => LevelFilter::Info,
-					"debug" => LevelFilter::Debug,
-					"trace" => LevelFilter::Trace,
-					_ => LevelFilter::Info,
-				};
-				cfg.set_log_level(level);
-			}
-			None => {
-				println!("{}", "log_level: None, default: info".italic().bold().bright_yellow());
-				cfg.set_log_level(LevelFilter::Info);
-			}
-		}
-	}
+    if cli.trace {
+        cfg.set_trace(cli.trace);
+    } else {
+        match &cli.log_level {
+            Some(s) => {
+                let level = match s.to_lowercase().as_str() {
+                    "error" => LevelFilter::Error,
+                    "warn" => LevelFilter::Warn,
+                    "info" => LevelFilter::Info,
+                    "debug" => LevelFilter::Debug,
+                    "trace" => LevelFilter::Trace,
+                    _ => LevelFilter::Info,
+                };
+                cfg.set_log_level(level);
+            }
+            None => {
+                cfg.set_log_level(LevelFilter::Info);
+            }
+        }
+    }
 
-	let d = &cli.debug;
-	cfg.set_debug(d.to_owned());
-	println!("{}", format!("debug: {}", d).italic().bold().bright_yellow());
+    let d = &cli.debug;
+    cfg.set_debug(d.to_owned());
 
-	let host = cli.host.as_deref().unwrap_or_else(|| {
-		println!("{}", "host: none".italic().bold().bright_red());
-		""
-	});
-	println!("{}", format!("host: {}", host).italic().bold().bright_yellow());
+    let host = cli.host.as_deref().unwrap_or_else(|| {
+        ""
+    });
 
-	let port = cli.port.as_deref().unwrap_or_else(|| {
-		println!("{}", "port: none".italic().bold().bright_red());
-		""
-	});
-	println!("{}", format!("port: {}", port).italic().bold().bright_yellow());
-	cfg.set_server(host, port);
+    let port = cli.port.as_deref().unwrap_or_else(|| {
+        ""
+    });
+    cfg.set_server(host, port);
 
-	let device_id = cli.device_id.as_deref().unwrap_or_else(|| {
-		println!("{}", "device_id: none".italic().bold().bright_red());
-		""
-	});
-	println!("{}", format!("device_id: {}", device_id).italic().bold().bright_yellow());
-	cfg.set_device_id(device_id.to_string());
+    let device_id = cli.device_id.as_deref().unwrap_or_else(|| {
+        ""
+    });
+    cfg.set_device_id(device_id.to_string());
 
-	let daemon = cli.daemon.unwrap_or_else(|| {
-		println!("{}", "daemon: none".italic().bold().bright_red());
-		false
-	});
-	println!("{}", format!("daemon: {}", daemon).italic().bold().bright_yellow());
-	cfg.set_daemon(daemon);
+    let daemon = cli.daemon.unwrap_or_else(|| {
+        false
+    });
+    cfg.set_daemon(daemon);
 
-	let description = cli.description.as_ref().map_or_else(|| {
-		println!("{}", "description: none".italic().bold().bright_red());
-		local_address()
-	}, |desc| desc.clone());
-	println!("{}", format!("description: {}", description).italic().bold().bright_yellow());
-	cfg.set_description(description.to_string());
-	info!("cfg: {:?}", cfg);
+    let description = cli.description.as_ref().map_or_else(|| {
+        local_address()
+    }, |desc| desc.clone());
+    cfg.set_description(description.to_string());
 }
 
 #[cfg(target_os = "linux")]
 async fn handle_signal(
-	caller: &mut cancel::CancelCaller,
+    caller: &mut cancel::CancelCaller,
 ) -> Result<(), Box<dyn std::error::Error>> {
-	let mut term_stream = signal(SignalKind::terminate())?;
-	let mut quit_stream = signal(SignalKind::quit())?;
-	let mut int_stream = signal(SignalKind::interrupt())?;
-	select! {
+    let mut term_stream = signal(SignalKind::terminate())?;
+    let mut quit_stream = signal(SignalKind::quit())?;
+    let mut int_stream = signal(SignalKind::interrupt())?;
+    select! {
         _ = term_stream.recv() => {
             info!("received SIGTERM");
         }
@@ -178,20 +164,20 @@ async fn handle_signal(
         }
     }
 
-	info!("start cancel all tasks");
-	caller.cancel_and_wait().await;
-	Ok(())
+    info!("start cancel all tasks");
+    caller.cancel_and_wait().await;
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
 async fn handle_signal(
-	caller: &mut cancel::CancelCaller,
+    caller: &mut cancel::CancelCaller,
 ) -> Result<(), Box<dyn std::error::Error>> {
-	let mut term_stream = windows::ctrl_c()?;
-	let mut quit_stream = windows::ctrl_break()?;
-	let mut close_stream = windows::ctrl_close()?;
-	let mut shutdown_stream = windows::ctrl_shutdown()?;
-	select! {
+    let mut term_stream = windows::ctrl_c()?;
+    let mut quit_stream = windows::ctrl_break()?;
+    let mut close_stream = windows::ctrl_close()?;
+    let mut shutdown_stream = windows::ctrl_shutdown()?;
+    select! {
         _ = term_stream.recv() => {
             info!("received Ctrl+C");
         }
@@ -206,68 +192,76 @@ async fn handle_signal(
         }
     }
 
-	info!("notify all task exit");
-	caller.cancel_and_wait().await;
+    info!("notify all task exit");
+    caller.cancel_and_wait().await;
 
-	info!("all task exit, main process exit");
-	Ok(())
+    info!("all task exit, main process exit");
+    Ok(())
 }
 
 
-
 fn local_address() -> String {
-	let ip = match local_ip() {
-		Ok(ip) => {
-			info!("local_ip: {:?}", ip);
-			ip.to_string()
-		}
-		Err(e) => {
-			error!("local_ip error: {:?}", e);
-			"".to_string()
-		}
-	};
-	ip
+    let ip = match local_ip() {
+        Ok(ip) => {
+            info!("local_ip: {:?}", ip);
+            ip.to_string()
+        }
+        Err(e) => {
+            error!("local_ip error: {:?}", e);
+            "".to_string()
+        }
+    };
+    ip
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-	let home_dir = dirs::home_dir().ok_or_else(|| {
-		println!("{}", "can not get home dir".italic().bold().bright_yellow());
-		std::io::Error::new(std::io::ErrorKind::NotFound, "Home directory not found")
-	})?;
+    println!("{}", format!("{}[{}] build with [{:?} {:?} {:?} {:?}]", APP_NAME,
+                           env!("CARGO_PKG_VERSION"),
+                           version().unwrap().to_string(),
+                           version_meta().unwrap().channel,
+                           version_meta().unwrap().commit_hash.unwrap(),
+                           version_meta().unwrap().commit_date.unwrap()).italic().bold().bright_yellow());
 
-	let mut cfg = dterm_config::new();
-	cfg.set_app_dir(home_dir.join(".codigger").join(APP_NAME));
-	cfg.set_log_dir(cfg.get_app_dir().join("log"));
+    let home_dir = dirs::home_dir().ok_or_else(|| {
+        println!("{}", "can not get home dir".italic().bold().bright_yellow());
+        std::io::Error::new(std::io::ErrorKind::NotFound, "Home directory not found")
+    })?;
+    println!("{}", format!("home_dir: {:?}", home_dir).italic().bold().bright_yellow());
 
-	// set config
-	let cli = parse_args(&mut Cli::parse(), &mut cfg);
+    let mut cfg = dterm_config::new();
+    cfg.set_app_dir(home_dir.join(".codigger").join(APP_NAME));
+    cfg.set_log_dir(cfg.get_app_dir().join("log"));
+    println!("{}", format!("app_dir: {:?}", cfg.get_app_dir()).italic().bold().bright_yellow());
 
-	// init log or trace
-	if cfg.get_trace() {
-		trace::trace_init();
-	} else {
-		log::init_log(cfg.get_log_dir(), cfg.get_log_level());
-	}
+    // set config
+    let cli = parse_args(&mut Cli::parse(), &mut cfg);
+    println!("{}", format!("{:?}", cfg).italic().bold().bright_yellow());
 
-	if cfg.get_device_id().is_empty() {
-		error!("device_id is empty, you must specify an id for your device");
-		return Ok(());
-	}
+    // init log or trace
+    if cfg.get_trace() {
+        trace::trace_init();
+    } else {
+        log::init_log(cfg.get_log_dir(), cfg.get_log_level());
+    }
 
-	let instance = SingleInstance::new(APP_NAME).and_then(|instance| {
-		if instance.is_single() {
-			info!("{} is single instance", APP_NAME);
-			Ok(instance)
-		} else {
-			error!("{} is already running", APP_NAME);
-			Err(SingleInstanceError::MutexError(0))
-		}
-	}).map_err(|e| {
-		error!("{} is already running, error: {}", APP_NAME, e);
-		std::io::Error::new(std::io::ErrorKind::AlreadyExists, "Single instance error")
-	})?;
+    if cfg.get_device_id().is_empty() {
+        error!("device_id is empty, you must specify an id for your device");
+        return Ok(());
+    }
 
-	 dterm::dterm_loop(&cfg).await?;
-	Ok(())
+    let instance = SingleInstance::new(APP_NAME).and_then(|instance| {
+        if instance.is_single() {
+            Ok(instance)
+        } else {
+            Err(SingleInstanceError::Nix(nix::Error::from_errno(nix::errno::Errno::EADDRINUSE)))
+        }
+    }).map_err(|e| {
+        error!("{} is already running, error: {}", APP_NAME, e);
+        std::io::Error::new(std::io::ErrorKind::AlreadyExists, "Single instance error")
+    })?;
+    info!("{} is single instance", APP_NAME);
+
+    dterm::dterm_loop(&cfg).await?;
+    Ok(())
 }

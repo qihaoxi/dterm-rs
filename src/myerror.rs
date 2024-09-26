@@ -5,10 +5,8 @@ pub struct MyError {
 }
 
 impl MyError {
-    pub(crate) fn new(p0: Box<dyn Error+Send>) -> Self {
-        Self {
-            inner: p0,
-        }
+    pub(crate) fn new(p0: Box<dyn Error + Send>) -> Self {
+        Self { inner: p0 }
     }
 }
 

@@ -133,3 +133,11 @@ fn peek_u8(src: &mut Cursor<&[u8]>) -> Result<u8, Error> {
 
     Ok(src.chunk()[0])
 }
+
+fn peek_u16(src: &mut Cursor<&[u8]>) -> Result<u16, Error> {
+    if src.remaining() < 2 {
+        return Err(Error::Incomplete);
+    }
+
+    Ok(u16::from_be_bytes([src.chunk()[0], src.chunk()[1]]))
+}
